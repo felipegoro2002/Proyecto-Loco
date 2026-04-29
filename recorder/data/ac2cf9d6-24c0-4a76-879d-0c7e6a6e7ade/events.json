@@ -1,0 +1,368 @@
+[
+  {
+    "time": 7.573,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 2349,
+      "y": 288,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 8.94,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 1830,
+      "y": 0,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 11.709,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 121,
+      "y": 247,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 14.727,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 2100,
+      "y": 13,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 15.506,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 1431,
+      "y": 104,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 16.384,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'w'"
+    }
+  },
+  {
+    "time": 16.589,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'j'"
+    }
+  },
+  {
+    "time": 17.157,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 17.354,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 17.587,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'i'"
+    }
+  },
+  {
+    "time": 17.775,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'k'"
+    }
+  },
+  {
+    "time": 17.923,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'i'"
+    }
+  },
+  {
+    "time": 18.905,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.403,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.436,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.463,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.498,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.527,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.552,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.585,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.612,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.642,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.676,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.701,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.735,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.761,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.backspace"
+    }
+  },
+  {
+    "time": 19.85,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'w'"
+    }
+  },
+  {
+    "time": 20.009,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'i'"
+    }
+  },
+  {
+    "time": 20.188,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'k'"
+    }
+  },
+  {
+    "time": 20.354,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'i'"
+    }
+  },
+  {
+    "time": 20.72,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'p'"
+    }
+  },
+  {
+    "time": 20.857,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'e'"
+    }
+  },
+  {
+    "time": 21.006,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'d'"
+    }
+  },
+  {
+    "time": 21.156,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'i'"
+    }
+  },
+  {
+    "time": 21.249,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'a'"
+    }
+  },
+  {
+    "time": 21.418,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.enter"
+    }
+  },
+  {
+    "time": 23.98,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 457,
+      "y": 627,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 24.6,
+    "source": "browser",
+    "type": "click",
+    "data": {
+      "type": "click",
+      "tag": "H3",
+      "text": "Wikipedia",
+      "id": "_FlnyafWfB_-LwbkPieHygQ8_38",
+      "classes": "LC20lb MBeuO DKV0Md",
+      "xpath": "//*[@id=\"_FlnyafWfB_-LwbkPieHygQ8_38\"]",
+      "url": "https://www.google.com/search?q=wikipedia&rlz=1C1RXQR_esMX1167MX1167&oq=wikipedia&gs_lcrp=EgZjaHJvbWUyDwgAEEUYORixAxjJAxiABDIHCAEQABiABDINCAIQABiDARixAxiABDINCAMQABiSAxiABBiKBTINCAQQABiSAxiABBiKBTIHCAUQABiABDIHCAYQABiABDIHCAcQABiABDIHCAgQABiABDIHCAkQABiABNIBCDUwMzNqMGo3qAIIsAIB8QUJgc3rmI9h8A&sourceid=chrome&ie=UTF-8",
+      "time": 1777490200166
+    }
+  },
+  {
+    "time": 26.511,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 384,
+      "y": 910,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 26.659,
+    "source": "browser",
+    "type": "click",
+    "data": {
+      "type": "click",
+      "tag": "A",
+      "text": "Bombardeo de Guernica",
+      "id": "",
+      "classes": "",
+      "xpath": "//*[@id=\"Bombardeo_de_Guernica\"]/A[1]",
+      "url": "https://es.wikipedia.org/wiki/Wikipedia:Portada",
+      "time": 1777490202678
+    }
+  },
+  {
+    "time": 29.193,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 2071,
+      "y": 1571,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 30.833,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.enter"
+    }
+  }
+]
