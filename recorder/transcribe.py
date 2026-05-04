@@ -7,8 +7,16 @@ def transcribe_audio(audio_path):
     print("Transcribiendo...")
     result = model.transcribe(audio_path, language="es")
 
-    text = result["text"]
+    segments = [
+        {
+            "time": round(seg["start"], 3),
+            "type": "speech",
+            "data": {
+                "text": seg["text"].strip(),
+                "end": round(seg["end"], 3)
+            }
+        }
+        for seg in result["segments"]
+    ]
 
-    print("\nTranscripción:\n", text)
-
-    return text
+    return segments

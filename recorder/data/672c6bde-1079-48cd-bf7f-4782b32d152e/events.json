@@ -1,0 +1,360 @@
+[
+  {
+    "time": 6.384,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 1897,
+      "y": 1583,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 9.613,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 1540,
+      "y": 1586,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 11.732,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 1370,
+      "y": 0,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 12.367,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 1223,
+      "y": 4,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 13.101,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 1169,
+      "y": 113,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 13.734,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'w'"
+    }
+  },
+  {
+    "time": 13.878,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'i'"
+    }
+  },
+  {
+    "time": 14.147,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'k'"
+    }
+  },
+  {
+    "time": 14.303,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'i'"
+    }
+  },
+  {
+    "time": 14.628,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'p'"
+    }
+  },
+  {
+    "time": 14.801,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'e'"
+    }
+  },
+  {
+    "time": 15.074,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'d'"
+    }
+  },
+  {
+    "time": 15.223,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'i'"
+    }
+  },
+  {
+    "time": 15.347,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'a'"
+    }
+  },
+  {
+    "time": 15.471,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.enter"
+    }
+  },
+  {
+    "time": 16.516,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 517,
+      "y": 632,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 17.042,
+    "source": "browser",
+    "type": "click",
+    "data": {
+      "type": "click",
+      "tag": "H3",
+      "text": "Wikipedia",
+      "id": "_aqr4abfNLt3ZwbkPnZKTsQ0_38",
+      "classes": "LC20lb MBeuO DKV0Md",
+      "xpath": "//*[@id=\"_aqr4abfNLt3ZwbkPnZKTsQ0_38\"]",
+      "url": "https://www.google.com/search?q=wikipedia&rlz=1C1RXQR_esMX1167MX1167&oq=wikipedia&gs_lcrp=EgZjaHJvbWUqDwgAEEUYOxixAxjJAxiABDIPCAAQRRg7GLEDGMkDGIAEMgcIARAAGIAEMg0IAhAAGIMBGLEDGIAEMgcIAxAAGIAEMgYIBBAAGAMyDQgFEAAYkgMYgAQYigUyDQgGEAAYkgMYgAQYigUyBggHEEUYPNIBCDE3MzhqMGo0qAIAsAIB&sourceid=chrome&ie=UTF-8",
+      "time": 1777904236374
+    }
+  },
+  {
+    "time": 18.435,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 645,
+      "y": 256,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 19.41,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 714,
+      "y": 230,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 21.989,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'c'"
+    }
+  },
+  {
+    "time": 22.008,
+    "source": "browser",
+    "type": "input",
+    "data": {
+      "type": "input",
+      "value": "c",
+      "id": "",
+      "name": "search",
+      "xpath": "//*[@id=\"searchform\"]/DIV[1]/DIV[1]/DIV[1]/INPUT[1]",
+      "url": "https://es.wikipedia.org/wiki/Wikipedia:Portada",
+      "time": 1777904241734
+    }
+  },
+  {
+    "time": 22.106,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'a'"
+    }
+  },
+  {
+    "time": 22.285,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'n'"
+    }
+  },
+  {
+    "time": 22.432,
+    "source": "browser",
+    "type": "input",
+    "data": {
+      "type": "input",
+      "value": "ca",
+      "id": "",
+      "name": "search",
+      "xpath": "//*[@id=\"searchform\"]/DIV[1]/DIV[1]/DIV[1]/INPUT[1]",
+      "url": "https://es.wikipedia.org/wiki/Wikipedia:Portada",
+      "time": 1777904241842
+    }
+  },
+  {
+    "time": 22.521,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'c'"
+    }
+  },
+  {
+    "time": 22.617,
+    "source": "browser",
+    "type": "input",
+    "data": {
+      "type": "input",
+      "value": "can",
+      "id": "",
+      "name": "search",
+      "xpath": "//*[@id=\"searchform\"]/DIV[1]/DIV[1]/DIV[1]/INPUT[1]",
+      "url": "https://es.wikipedia.org/wiki/Wikipedia:Portada",
+      "time": 1777904242025
+    }
+  },
+  {
+    "time": 22.679,
+    "source": "browser",
+    "type": "input",
+    "data": {
+      "type": "input",
+      "value": "canc",
+      "id": "",
+      "name": "search",
+      "xpath": "//*[@id=\"searchform\"]/DIV[1]/DIV[1]/DIV[1]/INPUT[1]",
+      "url": "https://es.wikipedia.org/wiki/Wikipedia:Portada",
+      "time": 1777904242258
+    }
+  },
+  {
+    "time": 22.704,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'u'"
+    }
+  },
+  {
+    "time": 22.818,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "'n'"
+    }
+  },
+  {
+    "time": 22.837,
+    "source": "browser",
+    "type": "input",
+    "data": {
+      "type": "input",
+      "value": "cancu",
+      "id": "",
+      "name": "search",
+      "xpath": "//*[@id=\"searchform\"]/DIV[1]/DIV[1]/DIV[1]/INPUT[1]",
+      "url": "https://es.wikipedia.org/wiki/Wikipedia:Portada",
+      "time": 1777904242441
+    }
+  },
+  {
+    "time": 23.02,
+    "source": "browser",
+    "type": "input",
+    "data": {
+      "type": "input",
+      "value": "cancun",
+      "id": "",
+      "name": "search",
+      "xpath": "//*[@id=\"searchform\"]/DIV[1]/DIV[1]/DIV[1]/INPUT[1]",
+      "url": "https://es.wikipedia.org/wiki/Wikipedia:Portada",
+      "time": 1777904242556
+    }
+  },
+  {
+    "time": 23.051,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.enter"
+    }
+  },
+  {
+    "time": 23.136,
+    "source": "browser",
+    "type": "click",
+    "data": {
+      "type": "click",
+      "tag": "BUTTON",
+      "text": "Buscar",
+      "id": "",
+      "classes": "cdx-button cdx-button--action-default cdx-button--weight-normal cdx-button--size-medium cdx-button--framed cdx-search-input__end-button",
+      "xpath": "//*[@id=\"searchform\"]/DIV[1]/BUTTON[1]",
+      "url": "https://es.wikipedia.org/wiki/Wikipedia:Portada",
+      "time": 1777904242795
+    }
+  },
+  {
+    "time": 30.437,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 1944,
+      "y": 1026,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 34.73,
+    "source": "system",
+    "type": "click",
+    "data": {
+      "x": 1997,
+      "y": 1581,
+      "button": "Button.left"
+    }
+  },
+  {
+    "time": 35.904,
+    "source": "system",
+    "type": "key",
+    "data": {
+      "key": "Key.enter"
+    }
+  }
+]

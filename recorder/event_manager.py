@@ -9,8 +9,9 @@ class EventManager:
         os.makedirs(self.session_dir, exist_ok=True)
 
     def add_event(self, source, type_, data):
+        t = round(time.time() - self.start_time, 3)
         self.events.append({
-            "time": round(time.time() - self.start_time, 3),
+            "time": t,
             "source": source,
             "type": type_,
             "data": data

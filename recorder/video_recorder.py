@@ -1,10 +1,7 @@
 import subprocess
+import re
 
 def get_default_microphone():
-    """
-    Detecta automáticamente el primer micrófono disponible en Windows
-    usando ffmpeg -list_devices. Retorna None si no hay ninguno.
-    """
     try:
         result = subprocess.run(
             ["ffmpeg", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
@@ -14,33 +11,33 @@ def get_default_microphone():
             encoding="utf-8",
             errors="replace"
         )
-        output = result.stderr
-
-        in_audio = False
-        for line in output.splitlines():
-            if "DirectShow audio devices" in line:
-                in_audio = True
-                continue
-            if in_audio:
+        for line in result.stderr.splitlines():
+            if "(audio)" in line:
                 match = re.search(r'"([^"]+)"', line)
                 if match:
                     name = match.group(1)
                     print(f"🎤 Micrófono detectado: {name}")
                     return name
-
     except Exception as e:
         print(f"⚠️ Error detectando micrófono: {e}")
-
     return None
 
 def start_video_recording(output_path):
+    mic = get_default_microphone()
+
     cmd = [
         "ffmpeg",
         "-y",
         "-f", "gdigrab",
         "-i", "desktop",
-        "-f", "dshow",
-        "-i", "audio=Microphone Array (Intel® Smart Sound Technology for Digital Microphones)",
+    ]
+
+    if mic:
+        cmd += ["-f", "dshow", "-i", f"audio={mic}"]
+    else:
+        print("⚠️ No se encontró micrófono. Grabando solo video.")
+
+    cmd += [
         "-vcodec", "libx264",
         "-preset", "ultrafast",
         "-pix_fmt", "yuv420p",
@@ -48,12 +45,23 @@ def start_video_recording(output_path):
         output_path
     ]
 
-    return subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    return subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
 
 def stop_video_recording(process):
-    process.stdin.write(b"q")
-    process.stdin.flush()
-    process.wait()
+    try:
+        process.stdin.write(b"q")
+        process.stdin.flush()
+        process.wait(timeout=10)
+    except Exception as e:
+        print(f"⚠️ Error deteniendo grabación: {e}")
+        process.kill()
+
 
 def extract_audio(video_path, audio_path):
     cmd = [
@@ -63,10 +71,15 @@ def extract_audio(video_path, audio_path):
         "-vn",
         "-acodec", "pcm_s16le",
         "-ar", "16000",
-        "-ac", "1",           # mono
+        "-ac", "1",
         audio_path
     ]
 
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
-    print(f"Audio extraído en: {audio_path}")
+    if result.returncode == 0:
+        print(f"🎵 Audio extraído en: {audio_path}")
+        return True
+    else:
+        print("⚠️ No se pudo extraer audio (puede que el video no tenga pista de audio).")
+        return False
