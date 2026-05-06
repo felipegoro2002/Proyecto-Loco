@@ -1,20 +1,22 @@
 import whisper
 
-def transcribe_audio(audio_path):
-    print("Cargando modelo Whisper...")
-    model = whisper.load_model("base")
+
+def transcribe_audio(audio_path, model_size="small", language="es"):
+    print(f"[WHISPER] Cargando modelo '{model_size}'...")
+    model = whisper.load_model(model_size)
 
     print("Transcribiendo...")
-    result = model.transcribe(audio_path, language="es")
+    result = model.transcribe(audio_path, language=language)
 
     segments = [
         {
-            "time": round(seg["start"], 3),
-            "type": "speech",
+            "time":   round(seg["start"], 3),
+            "source": "speech",                  # ← consistente con el resto de eventos
+            "type":   "speech",
             "data": {
                 "text": seg["text"].strip(),
-                "end": round(seg["end"], 3)
-            }
+                "end":  round(seg["end"], 3),
+            },
         }
         for seg in result["segments"]
     ]

@@ -16,10 +16,10 @@ def get_default_microphone():
                 match = re.search(r'"([^"]+)"', line)
                 if match:
                     name = match.group(1)
-                    print(f"🎤 Micrófono detectado: {name}")
+                    print(f"[MIC] Microfono detectado: {name}")
                     return name
     except Exception as e:
-        print(f"⚠️ Error detectando micrófono: {e}")
+        print(f"[WARN] Error detectando microfono: {e}")
     return None
 
 def start_video_recording(output_path):
@@ -35,7 +35,7 @@ def start_video_recording(output_path):
     if mic:
         cmd += ["-f", "dshow", "-i", f"audio={mic}"]
     else:
-        print("⚠️ No se encontró micrófono. Grabando solo video.")
+        print("[WARN] No se encontro microfono. Grabando solo video.")
 
     cmd += [
         "-vcodec", "libx264",
@@ -59,7 +59,7 @@ def stop_video_recording(process):
         process.stdin.flush()
         process.wait(timeout=10)
     except Exception as e:
-        print(f"⚠️ Error deteniendo grabación: {e}")
+        print(f"[WARN] Error deteniendo grabacion: {e}")
         process.kill()
 
 
@@ -78,8 +78,8 @@ def extract_audio(video_path, audio_path):
     result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
     if result.returncode == 0:
-        print(f"🎵 Audio extraído en: {audio_path}")
+        print(f"[OK] Audio extraido en: {audio_path}")
         return True
     else:
-        print("⚠️ No se pudo extraer audio (puede que el video no tenga pista de audio).")
+        print("[WARN] No se pudo extraer audio (puede que el video no tenga pista de audio).")
         return False
