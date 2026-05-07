@@ -8,6 +8,7 @@ from input_listener import start_listeners
 from browser_server import create_app
 from video_recorder import start_video_recording, stop_video_recording, extract_audio
 from transcribe import transcribe_audio
+from compressor import compress_session
 
 
 def record_session():
@@ -57,6 +58,9 @@ def record_session():
         json.dump(events, f, indent=2, ensure_ascii=False)
 
     print(f"[OK] Sesion guardada en: {session_dir}  ({len(events)} eventos)")
+
+    # ── Comprimir para la IA ──────────────────────────────────────────────────
+    compress_session(session_dir)
 
 
 if __name__ == "__main__":

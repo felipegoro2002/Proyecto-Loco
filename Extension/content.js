@@ -35,9 +35,9 @@ function send(type, data) {
 // ── Click ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('click', (e) => {
-  const el = e.target;
+  const el     = e.target;
   const anchor = el.closest('a');
-  const data = { ...elInfo(el), x: e.clientX, y: e.clientY };
+  const data   = { ...elInfo(el), x: e.clientX, y: e.clientY };
 
   if (anchor?.href && !anchor.target) {
     e.preventDefault();
@@ -50,7 +50,6 @@ document.addEventListener('click', (e) => {
 
 // ── Input ─────────────────────────────────────────────────────────────────────
 
-// Throttle: solo manda si cambia y no más de 1 vez por segundo
 let inputTimer = null;
 document.addEventListener('input', (e) => {
   const el = e.target;
@@ -65,15 +64,8 @@ document.addEventListener('input', (e) => {
 
 const FOCUSABLE = ['INPUT', 'TEXTAREA', 'SELECT', 'A', 'BUTTON'];
 
-document.addEventListener('focusin', (e) => {
-  if (FOCUSABLE.includes(e.target.tagName))
-    send('focus', elInfo(e.target));
-});
-
-document.addEventListener('focusout', (e) => {
-  if (FOCUSABLE.includes(e.target.tagName))
-    send('blur', elInfo(e.target));
-});
+document.addEventListener('focusin',  (e) => { if (FOCUSABLE.includes(e.target.tagName)) send('focus', elInfo(e.target)); });
+document.addEventListener('focusout', (e) => { if (FOCUSABLE.includes(e.target.tagName)) send('blur',  elInfo(e.target)); });
 
 // ── Scroll ────────────────────────────────────────────────────────────────────
 
@@ -85,8 +77,8 @@ window.addEventListener('scroll', () => {
   if (scrollT0 === null) { scrollFrom = window.scrollY; scrollT0 = Date.now(); }
   clearTimeout(scrollTimer);
   scrollTimer = setTimeout(() => {
-    const toY  = window.scrollY;
-    const max  = document.body.scrollHeight - window.innerHeight;
+    const toY = window.scrollY;
+    const max = document.body.scrollHeight - window.innerHeight;
     send('scroll', {
       from_y:       Math.round(scrollFrom),
       to_y:         Math.round(toY),
@@ -104,11 +96,8 @@ window.addEventListener('scroll', () => {
 const HOVER_MIN_MS = 600;
 let hoverEl = null, hoverT = null;
 
-document.addEventListener('mouseover', (e) => {
-  hoverEl = e.target; hoverT = Date.now();
-});
-
-document.addEventListener('mouseout', (e) => {
+document.addEventListener('mouseover', (e) => { hoverEl = e.target; hoverT = Date.now(); });
+document.addEventListener('mouseout',  (e) => {
   if (!hoverEl || !hoverT) return;
   const dur = Date.now() - hoverT;
   if (dur >= HOVER_MIN_MS)
@@ -133,8 +122,7 @@ document.addEventListener('copy', () => {
 
 document.addEventListener('paste', (e) => {
   const text = e.clipboardData?.getData('text') || '';
-  const el   = e.target;
-  if (text) send('paste', { text: text.slice(0, 300), ...elInfo(el) });
+  if (text) send('paste', { text: text.slice(0, 300), ...elInfo(e.target) });
 });
 
 // ── Teclas especiales en contexto ─────────────────────────────────────────────
@@ -143,47 +131,120 @@ const SPECIAL_KEYS = ['Enter', 'Escape', 'Tab', 'ArrowUp', 'ArrowDown'];
 
 document.addEventListener('keydown', (e) => {
   if (!SPECIAL_KEYS.includes(e.key)) return;
-  const el = document.activeElement;
-  send('keydown', {
-    key:     e.key,
-    ctrl:    e.ctrlKey,
-    shift:   e.shiftKey,
-    focused: elInfo(el),
-  });
+  send('keydown', { key: e.key, ctrl: e.ctrlKey, shift: e.shiftKey, focused: elInfo(document.activeElement) });
 });
 
-// ── Visibility de elementos importantes ───────────────────────────────────────
+// ── Dwell time — reemplaza element_visible ────────────────────────────────────
+//
+// En lugar de reportar "el elemento entró al viewport", esperamos a que
+// el usuario lo haya tenido visible al menos DWELL_MS milisegundos.
+// Eso filtra elementos que el usuario simplemente scrolleó sin leer.
 
-// Observa precios, botones, headings, links — elementos que el usuario "vio"
-const reportedElements = new Set();
+const DWELL_MS      = 1500;   // tiempo mínimo visible para considerar "leído"
+const SELECTORS     = ['h1','h2','h3','button','a','[role="button"]','[class*="price"]','[class*="precio"]'];
+const dwellMap      = new Map();  // element → timestamp de entrada al viewport
+const reportedDwell = new Set();  // xpath → ya reportado (evita duplicados)
 
-const IO = new IntersectionObserver((entries) => {
+const dwellObserver = new IntersectionObserver((entries) => {
+  const now = Date.now();
   for (const entry of entries) {
-    if (!entry.isIntersecting) continue;
-    const el = entry.target;
+    const el  = entry.target;
     const key = getXPath(el);
-    if (reportedElements.has(key)) { IO.unobserve(el); continue; }
-    reportedElements.add(key);
-    send('element_visible', {
-      ...elInfo(el),
-      viewport_pct: Math.round(entry.intersectionRatio * 100),
-    });
-    IO.unobserve(el);
+
+    if (entry.isIntersecting) {
+      // Elemento entró al viewport → registrar momento
+      dwellMap.set(el, now);
+    } else {
+      // Elemento salió del viewport → calcular cuánto tiempo estuvo
+      const start = dwellMap.get(el);
+      dwellMap.delete(el);
+      if (!start) continue;
+
+      const dwell_ms = now - start;
+      if (dwell_ms < DWELL_MS) continue;          // scrolleó rápido, ignorar
+      if (reportedDwell.has(key)) continue;        // ya reportado
+      reportedDwell.add(key);
+
+      const text = el.innerText?.trim() || '';
+      if (!text) continue;                         // sin texto visible, ignorar
+
+      send('element_read', {
+        ...elInfo(el),
+        dwell_ms,
+      });
+    }
   }
 }, { threshold: 0.5 });
 
-function observeImportantElements() {
-  const selectors = ['h1', 'h2', 'h3', 'button', 'a', '[role="button"]', 'price', '[class*="price"]', '[class*="precio"]'];
-  document.querySelectorAll(selectors.join(',')).forEach(el => IO.observe(el));
+function observeElements() {
+  document.querySelectorAll(SELECTORS.join(',')).forEach(el => {
+    // No re-observar si ya está siendo trackeado o ya fue reportado
+    if (dwellMap.has(el)) return;
+    const key = getXPath(el);
+    if (reportedDwell.has(key)) return;
+    dwellObserver.observe(el);
+  });
 }
 
-// Corre al cargar y de nuevo si el DOM cambia (SPAs)
-observeImportantElements();
-new MutationObserver(observeImportantElements).observe(document.body, { childList: true, subtree: true });
+observeElements();
+// Re-observar cuando el DOM cambia (SPAs, contenido dinámico)
+// Debounce para no llamar en cada micro-cambio del DOM
+let mutationTimer = null;
+new MutationObserver(() => {
+  clearTimeout(mutationTimer);
+  mutationTimer = setTimeout(observeElements, 500);
+}).observe(document.body, { childList: true, subtree: true });
+
+// ── Reading pause — snapshot al pausar el scroll ──────────────────────────────
+//
+// Cuando el usuario deja de scrollear 1.5s, captura los elementos importantes
+// que están en pantalla en ese momento (el usuario los está leyendo).
+
+const PAUSE_MS = 1500;
+let pauseTimer = null;
+let lastPausePct = -1;  // evita disparar si no hubo scroll real desde el último pause
+
+function getVisibleElements() {
+  const vTop    = window.scrollY;
+  const vBottom = vTop + window.innerHeight;
+
+  return document.querySelectorAll(SELECTORS.join(','))
+    // Solo elementos completamente o mayoritariamente visibles
+    .values()
+    ? [...document.querySelectorAll(SELECTORS.join(','))].filter(el => {
+        const r = el.getBoundingClientRect();
+        return r.top >= -r.height * 0.3 && r.bottom <= window.innerHeight + r.height * 0.3;
+      }).map(el => ({
+        tag:  el.tagName,
+        text: el.innerText?.trim().slice(0, 120) || '',
+        aria: el.getAttribute('aria-label') || '',
+      })).filter(e => e.text.length > 2)
+    : [];
+}
+
+window.addEventListener('scroll', () => {
+  clearTimeout(pauseTimer);
+  pauseTimer = setTimeout(() => {
+    const max = document.body.scrollHeight - window.innerHeight;
+    const pct = max > 0 ? Math.round((window.scrollY / max) * 100) : 0;
+
+    // No disparar si estamos en la misma posición que el último pause (±3%)
+    if (Math.abs(pct - lastPausePct) < 3) return;
+    lastPausePct = pct;
+
+    const elements = getVisibleElements();
+    if (elements.length === 0) return;
+
+    send('reading_pause', {
+      url:        window.location.href,
+      scroll_pct: pct,
+      elements,
+    });
+  }, PAUSE_MS);
+}, { passive: true });
 
 // ── Page load / navegación ────────────────────────────────────────────────────
 
-// Tiempo en página
 let pageLoadTime = Date.now();
 
 send('page_load', {
@@ -193,14 +254,56 @@ send('page_load', {
   description: document.querySelector('meta[name="description"]')?.content || '',
 });
 
+// Navegación SPA via history.pushState (React, Vue, Next.js, etc.)
+const _pushState = history.pushState.bind(history);
+history.pushState = function (...args) {
+  _pushState(...args);
+  send('spa_navigation', { url: window.location.href, title: document.title });
+};
+window.addEventListener('popstate', () => {
+  send('spa_navigation', { url: window.location.href, title: document.title });
+});
 window.addEventListener('hashchange', () => {
   send('hash_navigation', { url: window.location.href, title: document.title });
 });
 
-// Tiempo en página al salir
+// ── Page summary al salir ─────────────────────────────────────────────────────
+//
+// Antes de salir de la página, resume el contenido clave que estaba disponible.
+// Mucho más útil para la IA que N eventos element_visible sueltos.
+
 window.addEventListener('beforeunload', () => {
-  send('time_on_page', {
-    url:        window.location.href,
-    duration_ms: Date.now() - pageLoadTime,
+  const duration_ms = Date.now() - pageLoadTime;
+
+  // Heading principal
+  const h1 = document.querySelector('h1')?.innerText?.trim().slice(0, 200) || '';
+
+  // Precio principal (busca patrones comunes)
+  const priceEl = document.querySelector('[class*="price"],[class*="precio"],[class*="Price"],[class*="Precio"]');
+  const price   = priceEl?.innerText?.trim().slice(0, 50) || '';
+
+  // Botones de acción visibles (CTA)
+  const buttons = [...document.querySelectorAll('button,[role="button"]')]
+    .map(b => b.innerText?.trim())
+    .filter(t => t && t.length > 2 && t.length < 60)
+    .slice(0, 6);
+
+  // Headings h2 visibles (secciones leídas)
+  const sections = [...document.querySelectorAll('h2,h3')]
+    .map(h => h.innerText?.trim().slice(0, 80))
+    .filter(t => t && t.length > 3)
+    .slice(0, 8);
+
+  send('page_summary', {
+    url:         window.location.href,
+    title:       document.title,
+    duration_ms,
+    h1,
+    price,
+    buttons,
+    sections,
   });
+
+  // También enviar time_on_page para compatibilidad
+  send('time_on_page', { url: window.location.href, duration_ms });
 });
