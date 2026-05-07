@@ -2,44 +2,30 @@ import re
 import json
 
 # ── Filtro de network ──────────────────────────────────────────────────────────
+#
+# background.js ya filtra todo lo cross-origin (tracking, ads, Google internals,
+# otras tabs). El compressor solo necesita limpiar lo que se cuele:
+# recursos estáticos y paths de telemetría del propio sitio.
 
-# Dominios completos que son 100% ruido
-_NOISE_DOMAINS = re.compile(
-    r'(^|\.)('
-    # Publicidad Google
-    r'googlesyndication\.com|googleadservices\.com|googletagservices\.com|'
-    r'adtrafficquality\.google|doubleclick\.net|'
-    # CDNs de imágenes / assets
-    r'mlstatic\.com|walmartimages\.com|gstatic\.com|googleusercontent\.com|'
-    # Analytics y telemetría de terceros
-    r'tiktok\.com|facebook\.net|facebook\.com|'
-    r'nr-data\.net|newrelic\.com|segment\.io|mixpanel\.com|'
-    r'hotjar\.com|clarity\.ms|medallia\.com|'
-    # Google internals sin valor para el usuario
-    r'clients6\.google\.com|play\.google\.com'
-    r')($|/)',
-    re.IGNORECASE
-)
-
-# Paths que son tracking/telemetría aunque vengan de dominios útiles
 _NOISE_PATHS = re.compile(
-    r'/gen_204|/log(\?|$)|/tr/(\?|$)|'
-    r'/pixel/|/telemetry|/metrics(\?|$)|/traces(\?|$)|'
-    r'/sodar|safeframe|/RotateCookiesPage|'
-    r'longpolling|longpoll|/poll(\?|$)|'
-    r'webchannel/events|/_/|/idv/|'
-    r'heartbeat|/ping(\?|$)|'
-    r'/melidata/tracks|ces/v1/telemetry|ces/statsc|'
-    r'\.(woff2?|ttf|otf|eot|css|webp|png|jpg|jpeg|gif|ico|svg)(\?|$)',
+    r'/pixel|/beacon|/collect(\?|$)|/track(\?|$)|'
+    r'/telemetry|/metrics(\?|$)|/stat(s)?(\?|$)|'
+    r'/gen_204|/ping(\?|$)|/log(\?|$)|heartbeat|'
+    r'/melidata|snoopy\.|ces/v1|ces/statsc|'
+    r'longpolling|longpoll|webchannel|/_/|'
+    # Infraestructura RPC de Google Workspace (clients6.google.com y subdominios -pa.)
+    # Pasa background.js porque comparte root domain google.com con docs/drive
+    r'clients\d+\.google\.com|'
+    # Residual que puede pasar el filtro de background.js por coincidencia de substring
+    r'/recommendations\?|/adn/api|/api/stats|'   # ML recommendations, ads, YT stats
+    r'/scripts/|/spreadsheets/|/drive/log|'       # Google Docs internals
+    r'\.(js|css|woff2?|ttf|otf|eot|png|jpg|jpeg|gif|webp|svg|ico|wasm|map)(\?|$)',
     re.IGNORECASE
 )
 
 def _is_noise_network(event):
     url = event.get("data", {}).get("url", "")
-    # Extraer solo el dominio para checar la lista de dominios
-    domain_match = re.search(r'https?://([^/]+)', url)
-    domain = domain_match.group(1) if domain_match else ""
-    return bool(_NOISE_DOMAINS.search(domain)) or bool(_NOISE_PATHS.search(url))
+    return bool(_NOISE_PATHS.search(url))
 
 
 # ── Compresión de scroll ───────────────────────────────────────────────────────
@@ -47,22 +33,45 @@ def _is_noise_network(event):
 _SCROLL_GAP_S = 2.0  # segundos de pausa para considerar nuevo grupo
 
 def _compress_scroll_group(group):
-    """Convierte N eventos de scroll en un único scroll_summary."""
-    first = group[0]
-    last  = group[-1]
-    data  = first.get("data", {})
+    """Convierte N eventos de scroll en un único scroll_summary.
 
-    total_dy = sum(e["data"].get("delta_y", 0) for e in group)
-    total_dx = sum(e["data"].get("delta_x", 0) for e in group)
+    Maneja dos tipos de scroll:
+      - system (input_listener): tiene delta_x / delta_y
+      - browser (content.js):   tiene from_y / to_y / viewport_pct / url
+    """
+    first     = group[0]
+    last      = group[-1]
+    first_data = first.get("data", {})
+    last_data  = last.get("data", {})
 
-    if total_dy < 0:
-        direction = "down"
-    elif total_dy > 0:
-        direction = "up"
+    is_browser = "from_y" in first_data  # scroll viene de content.js
+
+    if is_browser:
+        # Delta real = desplazamiento total desde el primer from_y al último to_y
+        total_dy = last_data.get("to_y", 0) - first_data.get("from_y", 0)
+        total_dx = 0
+        direction = last_data.get("direction", "down")
+        extra = {
+            "from_y":       first_data.get("from_y"),
+            "to_y":         last_data.get("to_y"),
+            "viewport_pct": last_data.get("viewport_pct"),
+            "url":          last_data.get("url", ""),
+        }
     else:
-        direction = "horizontal"
+        total_dy = sum(e["data"].get("delta_y", 0) for e in group)
+        total_dx = sum(e["data"].get("delta_x", 0) for e in group)
+        if total_dy < 0:
+            direction = "down"
+        elif total_dy > 0:
+            direction = "up"
+        else:
+            direction = "horizontal"
+        extra = {
+            "app":          first_data.get("app", ""),
+            "window_title": first_data.get("window_title", ""),
+        }
 
-    return {
+    summary = {
         "time":   first["time"],
         "source": first.get("source", "system"),
         "type":   "scroll_summary",
@@ -72,61 +81,14 @@ def _compress_scroll_group(group):
             "delta_x":      round(total_dx, 1),
             "scroll_count": len(group),
             "duration_s":   round(last["time"] - first["time"], 2),
-            "app":          data.get("app", ""),
-            "window_title": data.get("window_title", ""),
         }
     }
+    summary["data"].update(extra)
+    return summary
 
-
-# ── Filtro de element_visible ─────────────────────────────────────────────────
-
-# Tags que nunca aportan valor semántico
-_EV_SKIP_TAGS = {"DIV", "SECTION", "ARTICLE", "ASIDE", "HEADER",
-                 "FOOTER", "NAV", "MAIN", "LI", "UL", "OL"}
-
-# Tags siempre valiosos sin condiciones
-_EV_KEEP_TAGS = {"H1", "H2", "H3", "H4", "H5", "H6", "S"}
-
-# Texto mínimo para considerar un A o BUTTON relevante
-_MIN_TEXT_LEN = 3
-
-# Palabras en texto de A que indican links de navegación sin valor
-_NAV_NOISE_RE = re.compile(
-    r'^(ver (m[aá]s|todo|menos)|siguiente|anterior|cerrar|close|'
-    r'menu|inicio|home|back|volver|compartir|share|\d+)$',
-    re.IGNORECASE
-)
 
 # Texto de SPAN que sugiere precio (contiene $ o dígitos con separador)
 _PRICE_RE = re.compile(r'[\$\€\£]|^\d[\d\.,]+$')
-
-
-def _is_relevant_element(data):
-    tag  = data.get("tag", "")
-    text = data.get("text", "").strip()
-
-    # Descartar tags de contenedor
-    if tag in _EV_SKIP_TAGS:
-        return False
-
-    # Siempre conservar headings y precios tachados
-    if tag in _EV_KEEP_TAGS:
-        return True
-
-    # Botones: conservar si tienen texto útil
-    if tag == "BUTTON":
-        return len(text) >= _MIN_TEXT_LEN
-
-    # Links: conservar si tienen texto real y no son nav genérico
-    if tag == "A":
-        return len(text) >= _MIN_TEXT_LEN and not _NAV_NOISE_RE.match(text)
-
-    # SPAN: conservar solo si parece precio
-    if tag == "SPAN":
-        return bool(_PRICE_RE.search(text))
-
-    # Resto de tags (INPUT, SELECT, custom elements…): conservar
-    return True
 
 
 def _element_key(event):
@@ -141,13 +103,17 @@ def _element_key(event):
 _BREADCRUMB_RE = re.compile(r'^[a-záéíóúüñ\s]+$', re.IGNORECASE)
 
 def _is_relevant_element_read(data):
-    """Filtra element_read que son breadcrumbs o links de nav genéricos."""
+    """Filtra element_read que son breadcrumbs, paginación o links de nav genéricos."""
     tag  = data.get("tag", "")
     text = (data.get("text") or "").strip()
 
     # Solo aplicar filtro extra a links
     if tag != "A":
         return True
+
+    # Descartar paginación: texto que es solo dígitos (1, 2, 3, 10...)
+    if re.match(r'^\d+$', text):
+        return False
 
     # Descartar si el texto es solo minúsculas/espacios (breadcrumb típico)
     # y no contiene precio ni mayúsculas propias
@@ -157,15 +123,64 @@ def _is_relevant_element_read(data):
     return True
 
 
+# ── Filtro de hover ───────────────────────────────────────────────────────────
+
+# Tags que vale la pena registrar en hover (el usuario inspeccionó algo)
+_HOVER_KEEP_TAGS = {"H1", "H2", "H3", "H4", "A", "BUTTON", "SPAN", "IMG",
+                    "INPUT", "SELECT", "LABEL"}
+
+# Duración mínima de hover para que sea intencional (ms)
+_HOVER_MIN_MS = 800
+
+def _is_relevant_hover(event):
+    data     = event.get("data", {})
+    tag      = data.get("tag", "")
+    text     = (data.get("text") or "").strip()
+    dur      = data.get("duration_ms", 0)
+    aria     = data.get("aria", "")
+
+    # Descartar hovers muy cortos (pasó el cursor de largo)
+    if dur < _HOVER_MIN_MS:
+        return False
+
+    # Descartar tags contenedor sin texto semántico
+    if tag not in _HOVER_KEEP_TAGS:
+        return False
+
+    # Descartar si no hay texto ni aria-label (elemento mudo)
+    if not text and not aria:
+        return False
+
+    # Descartar texto vacío / solo espacios / solo &nbsp;
+    clean = re.sub(r'[\xa0\s]+', '', text)
+    if not clean:
+        return False
+
+    return True
+
+
+# Tipos de eventos que son ruido puro — nunca aportan valor a la IA
+# (time_on_page ya no lo genera content.js; se mantiene por compatibilidad con sesiones viejas)
+_DROP_TYPES = {"focus", "blur", "keydown", "time_on_page"}
+
+# Dominios de redirect que generan page_load sin contenido útil
+_REDIRECT_DOMAINS = re.compile(r'https?://(www\.)?google\.com/url\?', re.IGNORECASE)
+
+
 def compress(events):
     """
-    Aplica cuatro transformaciones:
-      1. network       → elimina polling, analytics y heartbeats
-      2. scroll        → agrupa ráfagas consecutivas en scroll_summary
-                         descarta scrolls con delta_x=0 y delta_y=0
-      3. element_visible → deduplica, conserva solo la primera aparición
-      4. element_read  → filtra breadcrumbs, deduplica
+    Aplica las siguientes transformaciones:
+      1. network       → solo APIs del mismo dominio; descarta tracking y recursos
+      2. scroll        → agrupa ráfagas en scroll_summary
+                         maneja scrolls de sistema (delta_y) y browser (from_y/to_y)
+                         descarta scrolls con movimiento nulo
+      3. element_read  → filtra breadcrumbs y paginación, deduplica por xpath+url
+      4. hover         → solo tags semánticos con texto real y duración >= 800ms
       5. reading_pause → descarta si scroll_pct < 5 (top de página = nav noise)
+      6. focus/blur/keydown/time_on_page → descarta siempre (ruido puro)
+      7. page_load/page_summary/screenshot en redirects → descarta google.com/url
+      8. page_summary  → descarta si duration_ms < 500ms (bounce/redirect)
+      9. api_response  → pasa directo (datos estructurados de producto)
     """
     result        = []
     seen_elements = set()
@@ -175,18 +190,19 @@ def compress(events):
         event = events[i]
         etype = event.get("type")
 
-        # 1. element_visible (legacy) — filtrar y deduplicar
-        if etype == "element_visible":
-            data = event.get("data", {})
-            if _is_relevant_element(data):
-                key = _element_key(event)
-                if key not in seen_elements:
-                    seen_elements.add(key)
-                    result.append(event)
+        # 0a. Tipos de ruido puro — descartar siempre
+        if etype in _DROP_TYPES:
             i += 1
             continue
 
-        # 1b. element_read — filtrar breadcrumbs y deduplicar
+        # 0b. page_load, page_summary y screenshot en dominios de redirect — descartar
+        if etype in ("page_load", "page_summary", "screenshot"):
+            url = event.get("data", {}).get("url", "")
+            if url and _REDIRECT_DOMAINS.match(url):
+                i += 1
+                continue
+
+        # 1. element_read — filtrar breadcrumbs y deduplicar
         if etype == "element_read":
             data = event.get("data", {})
             if _is_relevant_element_read(data):
@@ -194,6 +210,13 @@ def compress(events):
                 if key not in seen_elements:
                     seen_elements.add(key)
                     result.append(event)
+            i += 1
+            continue
+
+        # 1c. hover — solo elementos semánticos con texto real
+        if etype == "hover":
+            if _is_relevant_hover(event):
+                result.append(event)
             i += 1
             continue
 
@@ -217,13 +240,28 @@ def compress(events):
                 else:
                     break
             summary = _compress_scroll_group(group)
-            # Descartar scrolls con movimiento nulo (horizontal noise)
-            if summary["data"]["delta_y"] != 0 or summary["data"]["delta_x"] != 0:
+            # Descartar scrolls con movimiento nulo
+            # Para browser scrolls verificar también from_y/to_y por si delta_y=0
+            d = summary["data"]
+            has_movement = (
+                d["delta_y"] != 0 or d["delta_x"] != 0
+                or (d.get("from_y") is not None and d.get("from_y") != d.get("to_y"))
+            )
+            if has_movement:
                 result.append(summary)
             i = j
             continue
 
-        # 4. reading_pause — descartar si está al tope de la página (nav noise)
+        # 4. page_summary — descartar si la duración es menor a 500ms (redirect o bounce)
+        if etype == "page_summary":
+            if event.get("data", {}).get("duration_ms", 0) < 500:
+                i += 1
+                continue
+            result.append(event)
+            i += 1
+            continue
+
+        # 5. reading_pause — descartar si está al tope de la página (nav noise)
         if etype == "reading_pause":
             data = event.get("data", {})
             if data.get("scroll_pct", 0) >= 5:

@@ -32,6 +32,66 @@ function send(type, data) {
   chrome.runtime.sendMessage({ type, ...data, time: Date.now() });
 }
 
+// ── Interceptor de APIs de producto ──────────────────────────────────────────
+//
+// Captura respuestas JSON de APIs de producto (GraphQL, REST) para dar a la IA
+// datos estructurados (nombre, precio, stock) sin depender del DOM.
+// Solo captura las primeras 3KB para mantener el tamaño bajo control.
+// La IA puede decidir si analizar o ignorar estos datos según la tarea.
+
+const _PRODUCT_API_RE = /\/(graphql|orchestra\/api|orchestra\/pdp|p\/api|pdp\/graphql|rest\/search|product|item|deferred)[/?]/i;
+const _PRODUCT_DATA_RE = /name|price|title|stock|product|precio|nombre/i;
+const _API_MAX_BYTES  = 3000;
+
+// ── Interceptor fetch ─────────────────────────────────────────────────────────
+const _originalFetch = window.fetch.bind(window);
+window.fetch = async function (...args) {
+  const response = await _originalFetch(...args);
+  try {
+    const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+    if (_PRODUCT_API_RE.test(url)) {
+      const clone = response.clone();
+      const text  = await clone.text();
+      if (text && _PRODUCT_DATA_RE.test(text.slice(0, 500))) {
+        send('api_response', {
+          url,
+          body: text.slice(0, _API_MAX_BYTES),
+          page_url: window.location.href,
+        });
+      }
+    }
+  } catch (_) {}
+  return response;
+};
+
+// ── Interceptor XHR ───────────────────────────────────────────────────────────
+// MercadoLibre y otros sitios pueden usar XMLHttpRequest en lugar de fetch
+const _origXHROpen = XMLHttpRequest.prototype.open;
+const _origXHRSend = XMLHttpRequest.prototype.send;
+
+XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+  this._xhrUrl = url;
+  return _origXHROpen.call(this, method, url, ...rest);
+};
+
+XMLHttpRequest.prototype.send = function(...args) {
+  if (this._xhrUrl && _PRODUCT_API_RE.test(this._xhrUrl)) {
+    this.addEventListener('load', function() {
+      try {
+        const text = this.responseText || '';
+        if (text && _PRODUCT_DATA_RE.test(text.slice(0, 500))) {
+          send('api_response', {
+            url:      this._xhrUrl,
+            body:     text.slice(0, _API_MAX_BYTES),
+            page_url: window.location.href,
+          });
+        }
+      } catch (_) {}
+    });
+  }
+  return _origXHRSend.apply(this, args);
+};
+
 // ── Click ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('click', (e) => {
@@ -59,13 +119,6 @@ document.addEventListener('input', (e) => {
     send('input', { ...elInfo(el), value: el.value, input_type: el.type || '' });
   }, 800);
 });
-
-// ── Focus / Blur ──────────────────────────────────────────────────────────────
-
-const FOCUSABLE = ['INPUT', 'TEXTAREA', 'SELECT', 'A', 'BUTTON'];
-
-document.addEventListener('focusin',  (e) => { if (FOCUSABLE.includes(e.target.tagName)) send('focus', elInfo(e.target)); });
-document.addEventListener('focusout', (e) => { if (FOCUSABLE.includes(e.target.tagName)) send('blur',  elInfo(e.target)); });
 
 // ── Scroll ────────────────────────────────────────────────────────────────────
 
@@ -123,15 +176,6 @@ document.addEventListener('copy', () => {
 document.addEventListener('paste', (e) => {
   const text = e.clipboardData?.getData('text') || '';
   if (text) send('paste', { text: text.slice(0, 300), ...elInfo(e.target) });
-});
-
-// ── Teclas especiales en contexto ─────────────────────────────────────────────
-
-const SPECIAL_KEYS = ['Enter', 'Escape', 'Tab', 'ArrowUp', 'ArrowDown'];
-
-document.addEventListener('keydown', (e) => {
-  if (!SPECIAL_KEYS.includes(e.key)) return;
-  send('keydown', { key: e.key, ctrl: e.ctrlKey, shift: e.shiftKey, focused: elInfo(document.activeElement) });
 });
 
 // ── Dwell time — reemplaza element_visible ────────────────────────────────────
@@ -304,6 +348,4 @@ window.addEventListener('beforeunload', () => {
     sections,
   });
 
-  // También enviar time_on_page para compatibilidad
-  send('time_on_page', { url: window.location.href, duration_ms });
 });

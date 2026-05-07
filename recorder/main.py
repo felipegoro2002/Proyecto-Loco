@@ -9,16 +9,17 @@ from browser_server import create_app
 from video_recorder import start_video_recording, stop_video_recording, extract_audio
 from transcribe import transcribe_audio
 from compressor import compress_session
+from frame_extractor import extract_frames
 
 
-def record_session():
+def record_session(frame_interval_s=10):
     manager = EventManager()
     session_dir = manager.get_dir()
 
-    # 🖱️ inputs
+    # inputs
     start_listeners(manager)
 
-    # 🌐 servidor extensión
+    # servidor extension
     app = create_app(manager)
     server_thread = threading.Thread(
         target=lambda: app.run(port=5000, use_reloader=False)
@@ -26,7 +27,7 @@ def record_session():
     server_thread.daemon = True
     server_thread.start()
 
-    # 🎥 video (micrófono detectado automáticamente)
+    # video (microfono detectado automaticamente)
     video_path = f"{session_dir}/screen.mp4"
     video_proc = start_video_recording(video_path)
 
@@ -52,6 +53,12 @@ def record_session():
     else:
         events = manager.events
         print("[SKIP] Transcripcion omitida (no hay audio).")
+
+    # ── Extraer frames del video ──────────────────────────────────────────────
+    print(f"[FRAME] Extrayendo frames (intervalo: {frame_interval_s}s)...")
+    screenshot_events = extract_frames(video_path, events, session_dir, frame_interval_s)
+    if screenshot_events:
+        events = sorted(events + screenshot_events, key=lambda e: e["time"])
 
     session_file = f"{session_dir}/session.json"
     with open(session_file, "w", encoding="utf-8") as f:

@@ -94,8 +94,14 @@ const sections_content = [
         "  Usuario actua",
         "      |",
         "      +-- input_listener.py  -->  clicks, teclado, scroll, drag  (sistema)",
-        "      +-- content.js         -->  browser events, dwell time, network",
+        "      +-- content.js         -->  browser events, dwell time, hover",
         "      +-- video_recorder.py  -->  screen.mp4 + audio.wav",
+        "                |",
+        "                v",
+        "         background.js  (pre-filtro de network en el browser)",
+        "           - Solo APIs del mismo dominio raiz que la pagina activa",
+        "           - Descarta cross-origin: tracking, ads, analytics",
+        "           - Descarta RPC interna de Google Workspace (clients6.google.com)",
         "                |",
         "                v",
         "         EventManager  (normaliza timestamps y fuente)",
@@ -105,10 +111,13 @@ const sections_content = [
         "                |",
         "                v",
         "         compressor.py",
-        "           - Filtra network noise (analytics, CDNs, polling)",
-        "           - Agrupa rafagas de scroll  -->  scroll_summary",
-        "           - Filtra element_read de breadcrumbs",
-        "           - Descarta reading_pause con scroll_pct < 5%",
+        "           - network       --> segunda pasada: descarta paths de telemetria",
+        "           - scroll        --> agrupa rafagas en scroll_summary",
+        "           - element_read  --> filtra breadcrumbs y paginacion, deduplica",
+        "           - hover         --> solo tags semanticos con texto real (>= 800ms)",
+        "           - reading_pause --> descarta si scroll_pct < 5%",
+        "           - focus/blur/keydown/time_on_page --> descartados siempre",
+        "           - page_summary con duration < 500ms --> descarta (redirect/bounce)",
         "                |",
         "                v",
         "    session_compressed.json  -->  IA",
@@ -294,12 +303,19 @@ const sections_content = [
 
   ...eventTable("4.8 hover", "0066cc",
     [
-      ["duration_ms", "int", "Tiempo que el cursor estuvo sobre el elemento (minimo 600ms)"],
+      ["duration_ms", "int", "Tiempo que el cursor estuvo sobre el elemento (minimo 600ms captura, 800ms compressor)"],
       ["x, y", "int", "Coordenadas del cursor al salir del elemento"],
       ["...campos base", "", "tag, text, id, xpath, role, aria, href, url"],
     ],
     ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
   ),
+  new Paragraph({
+    spacing: { before: 60 },
+    children: [new TextRun({
+      text: "  El compressor filtra hovers sobre tags contenedor (DIV, SECTION…) y texto vacio o solo espacios.",
+      size: 18, color: "555555", font: "Courier New"
+    })]
+  }),
 
   ...eventTable("4.9 text_select / copy / paste", "0066cc",
     [
@@ -310,28 +326,96 @@ const sections_content = [
     ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
   ),
 
-  ...eventTable("4.10 keydown", "0066cc",
+  ...eventTable("4.10 network  (filtrado por background.js + compressor)", "0066cc",
     [
-      ["key", "string", "Tecla especial (Enter, Escape, Tab, ArrowUp, ArrowDown)"],
-      ["ctrl, shift", "bool", "Modificadores activos"],
-      ["focused", "object", "Elemento con foco (campos base)"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
-
-  ...eventTable("4.11 network  (filtrado por compressor)", "0066cc",
-    [
-      ["url", "string", "URL del request"],
+      ["url", "string", "URL del request (solo APIs del mismo dominio raiz)"],
       ["method", "string", "GET / POST / etc."],
       ["status", "int", "Codigo HTTP de respuesta"],
-      ["type", "string", "Tipo de recurso (xhr, fetch, document...)"],
+      ["tab_url", "string", "Origen de la pagina que genero el request"],
     ],
     ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
   ),
   new Paragraph({
     spacing: { before: 60 },
     children: [new TextRun({
-      text: "  El compressor descarta: analytics, CDNs de imagenes, polling, heartbeats,\n  y archivos estaticos (.woff2, .css, .webp, .png, etc.).",
+      text: [
+        "  Filtro en dos etapas:",
+        "  1. background.js: solo pasan requests del mismo dominio raiz que la pagina.",
+        "     Esto elimina automaticamente tracking, ads y analytics cross-origin.",
+        "  2. compressor.py: segunda pasada para paths de telemetria del propio sitio.",
+        "  Resultado: solo quedan APIs de producto reales (ej: /graphql, /p/api/deferred).",
+      ].join("\n"),
+      size: 18, color: "555555", font: "Courier New"
+    })]
+  }),
+
+  p(""),
+
+  // API response
+  h("5. api_response  (interceptor fetch/XHR)", HeadingLevel.HEADING_2),
+  p("Cuando content.js detecta un fetch() o XHR hacia una API de producto, captura los primeros 3KB del body de respuesta:"),
+  p(""),
+  ...eventTable("api_response", "0066cc",
+    [
+      ["url", "string", "URL de la API llamada"],
+      ["body", "string", "Primeros 3000 bytes del body JSON de respuesta"],
+      ["page_url", "string", "URL de la pagina desde donde se hizo el request"],
+    ],
+    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
+  ),
+  new Paragraph({
+    spacing: { before: 60 },
+    children: [new TextRun({
+      text: [
+        "  Solo se captura si la URL coincide con patrones de API de producto",
+        "  (/graphql, /orchestra/api, /p/api, /pdp/graphql, /product, /item, /deferred)",
+        "  y el body contiene terminos como name, price, title, stock o product.",
+        "  El interceptor cubre fetch() y XMLHttpRequest en el contexto principal de la pagina.",
+      ].join("\n"),
+      size: 18, color: "555555", font: "Courier New"
+    })]
+  }),
+
+  p(""),
+
+  // Screenshots
+  h("6. Eventos de video (screenshot)", HeadingLevel.HEADING_2),
+  p("El frame_extractor extrae JPEGs del video grabado en tres momentos clave y los agrega como eventos screenshot al session.json:"),
+  p(""),
+  new Paragraph({
+    children: [new TextRun({
+      text: [
+        "  page_load  →  frame al instante en que cargo cada pagina",
+        "  speech     →  frame al inicio de cada frase del usuario",
+        "  ambient    →  frame cada N segundos (default: 10s)",
+      ].join("\n"),
+      font: "Courier New", size: 17
+    })]
+  }),
+  p(""),
+  ...eventTable("screenshot", "5C4033",
+    [
+      ["frame",   "string",      "Ruta relativa al JPEG  (ej: frames/frame_13.5.jpg)"],
+      ["trigger", "string",      "Razon de captura: page_load | speech | ambient"],
+      ["url",     "string",      "URL de la pagina (solo en page_load)"],
+      ["text",    "string",      "Frase del usuario (solo en speech)"],
+    ],
+    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
+  ),
+  new Paragraph({
+    spacing: { before: 100 },
+    children: [new TextRun({
+      text: [
+        "  Los frames estan disponibles en session/frames/ pero la IA no esta obligada",
+        "  a analizarlos. El session_compressed.json ya contiene suficiente informacion",
+        "  textual para entender la tarea en la mayoria de los casos.",
+        "  Los screenshots son un recurso adicional que la IA puede consultar",
+        "  selectivamente cuando necesite confirmar algo visual:",
+        "    - Verificar el contenido de una pagina",
+        "    - Leer un precio o dato que el browser no capturo",
+        "    - Entender el estado de una app de escritorio",
+        "  Esto mantiene el costo de procesamiento bajo control.",
+      ].join("\n"),
       size: 18, color: "555555", font: "Courier New"
     })]
   }),
@@ -339,7 +423,7 @@ const sections_content = [
   p(""),
 
   // Speech
-  h("5. Evento de audio (speech)", HeadingLevel.HEADING_2),
+  h("8. Evento de audio (speech)", HeadingLevel.HEADING_2),
   ...eventTable("speech — transcripcion de Whisper", "8B0000",
     [
       ["text", "string", "Texto transcripto del segmento de audio"],
@@ -359,7 +443,7 @@ const sections_content = [
   p(""),
 
   // Estructura del JSON
-  h("6. Estructura de un evento en session_compressed.json", HeadingLevel.HEADING_2),
+  h("9. Estructura de un evento en session_compressed.json", HeadingLevel.HEADING_2),
   new Paragraph({
     children: [new TextRun({
       text: [
@@ -383,7 +467,7 @@ const sections_content = [
   p(""),
 
   // Tabla resumen
-  h("7. Resumen de tipos por frecuencia tipica", HeadingLevel.HEADING_2),
+  h("9. Resumen de tipos por frecuencia tipica", HeadingLevel.HEADING_2),
   new Table({
     width: { size: W, type: WidthType.DXA },
     columnWidths: [2400, 2000, 2000, 2960],
@@ -402,7 +486,15 @@ const sections_content = [
       row(["hover",           "browser", "Alta",     "Bajo — puede ser ruido"],                 [2400, 2000, 2000, 2960], false),
       row(["network",         "browser", "Muy alta", "Bajo — util solo para APIs clave"],       [2400, 2000, 2000, 2960], true),
       row(["drag",            "system",  "Baja",     "Contextual — segun la app"],              [2400, 2000, 2000, 2960], false),
+      row(["screenshot",      "video",   "Media",    "Opcional — imagen de pantalla en momentos clave"], [2400, 2000, 2000, 2960], true),
     ]
+  }),
+  new Paragraph({
+    spacing: { before: 100 },
+    children: [new TextRun({
+      text: "  (*) Los screenshots no se analizan automaticamente. La IA los consulta solo cuando\n  la informacion textual no es suficiente para entender lo que ocurrio en pantalla.",
+      size: 18, color: "888888", font: "Courier New"
+    })]
   }),
 ];
 
