@@ -22,6 +22,9 @@ Thumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 
+# Microsoft Office - archivos temporales
+~$*
+
 # IDEs
 .vscode/
 .idea/
