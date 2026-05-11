@@ -199,7 +199,7 @@ window.addEventListener('scroll', () => {
 
 // ── Hover ─────────────────────────────────────────────────────────────────────
 
-const HOVER_MIN_MS = 600;
+const HOVER_MIN_MS = 800;
 let hoverEl = null, hoverT = null;
 
 document.addEventListener('mouseover', (e) => { hoverEl = e.target; hoverT = Date.now(); });
@@ -318,7 +318,6 @@ function isReallyVisible(el) {
   if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) < 0.1) return false;
   const r = el.getBoundingClientRect();
   if (r.width < 4 || r.height < 4) return false;
-  // dentro del viewport (con tolerancia de 30% del alto)
   if (r.bottom < -r.height * 0.3) return false;
   if (r.top > window.innerHeight + r.height * 0.3) return false;
   return true;
@@ -334,13 +333,9 @@ function getVisibleElements() {
     const text = (el.innerText || '').trim().slice(0, 120);
     if (text.length < 3) continue;
     const key = `${el.tagName}|${text}`;
-    if (seen.has(key)) continue;          // dedup por tag+texto
+    if (seen.has(key)) continue;
     seen.add(key);
-    out.push({
-      tag:  el.tagName,
-      text,
-      aria: el.getAttribute('aria-label') || '',
-    });
+    out.push({ tag: el.tagName, text, aria: el.getAttribute('aria-label') || '' });
     if (out.length >= PAUSE_MAX_ELEMENTS) break;
   }
   return out;

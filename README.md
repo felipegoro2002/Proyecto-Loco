@@ -150,8 +150,12 @@ Usuario actua
 | browser | `element_read`   | Elemento visible por mas de 1500ms (dwell time) |
 | browser | `reading_pause`  | Snapshot de elementos visibles al pausar el scroll |
 | browser | `page_summary`   | Resumen estructurado al salir (h1, precio, botones) |
-| browser | `spa_navigation` | Navegacion en apps de una sola pagina |
-| browser | `network`        | APIs del mismo dominio (filtradas por background.js + compressor) |
+| browser | `spa_navigation`  | Navegacion en apps de una sola pagina (history.pushState / popstate) |
+| browser | `hash_navigation` | Cambio de hash en la URL (#seccion) |
+| browser | `text_select`     | Texto seleccionado con el mouse (> 2 caracteres) |
+| browser | `copy`            | Texto copiado con Ctrl+C o clic derecho > Copiar |
+| browser | `paste`           | Texto pegado en un elemento del DOM |
+| browser | `network`         | APIs del mismo dominio (filtradas por background.js + compressor) |
 | speech  | `speech`         | Transcripcion del audio del usuario (Whisper small) |
 | video   | `screenshot`     | Frame del video en momentos clave (page_load, speech, ambient) |
 

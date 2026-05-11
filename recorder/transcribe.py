@@ -1,12 +1,12 @@
 import whisper
 
 
-def transcribe_audio(audio_path, model_size="small", language="es"):
+def transcribe_audio(audio_path, model_size="small", language=None):
     print(f"[WHISPER] Cargando modelo '{model_size}'...")
     model = whisper.load_model(model_size)
 
     print("Transcribiendo...")
-    result = model.transcribe(audio_path, language=language)
+    result = model.transcribe(audio_path, language=language)  # None → autodetect
 
     segments = [
         {
