@@ -1,8 +1,17 @@
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// id "auto-generado" típico: view_24, j_idt123, _r0, etc. Inestables entre renders.
+const _AUTO_ID_RE = /^(view_|j_idt|_r|jsx-|css-|ember|mat-|ng-|react-|ext-)|\d{3,}$|^[a-z]+[-_]?\d+$/i;
+const _NOISE_CLASS_RE = /^([a-z]\d|_|css-|jsx-|emotion-|ng-|sc-)/i;  // clases generadas
+
+function _isStableId(id) {
+  return !!id && !_AUTO_ID_RE.test(id) && id.length < 60;
+}
+
 function getXPath(el) {
-  if (el.id) return `//*[@id="${el.id}"]`;
+  if (_isStableId(el.id)) return `//*[@id="${el.id}"]`;
   if (el === document.body) return '/html/body';
+  if (!el.parentNode) return '';
   let ix = 0;
   const siblings = el.parentNode.childNodes;
   for (let i = 0; i < siblings.length; i++) {
@@ -11,20 +20,64 @@ function getXPath(el) {
       return getXPath(el.parentNode) + '/' + el.tagName + '[' + (ix + 1) + ']';
     if (s.nodeType === 1 && s.tagName === el.tagName) ix++;
   }
+  return '';
+}
+
+// CSS selector estable. Prefiere id estable; si no, encadena tag + clases estables hasta 4 niveles.
+function getCssPath(el) {
+  if (_isStableId(el.id)) return `#${CSS.escape(el.id)}`;
+  const parts = [];
+  let cur = el;
+  for (let depth = 0; cur && cur.nodeType === 1 && depth < 4; depth++) {
+    if (_isStableId(cur.id)) {
+      parts.unshift(`#${CSS.escape(cur.id)}`);
+      break;
+    }
+    let s = cur.tagName.toLowerCase();
+    const cls = (typeof cur.className === 'string' ? cur.className : '').trim();
+    if (cls) {
+      const stable = cls.split(/\s+/)
+        .filter(c => c.length > 2 && c.length < 40 && !_NOISE_CLASS_RE.test(c))
+        .slice(0, 2);
+      if (stable.length) s += '.' + stable.map(CSS.escape).join('.');
+    }
+    parts.unshift(s);
+    cur = cur.parentElement;
+  }
+  return parts.join(' > ');
 }
 
 function elInfo(el) {
   if (!el || !el.tagName) return {};
+
+  // Atributos data-* y testid (los más estables para Playwright)
+  const dataAttrs = {};
+  let testid = '';
+  for (const attr of el.attributes || []) {
+    if (!attr.name.startsWith('data-')) continue;
+    dataAttrs[attr.name] = attr.value;
+    if (/^data-(testid|test-id|cy|qa)$/i.test(attr.name)) testid = attr.value;
+  }
+
   return {
     tag:     el.tagName,
-    text:    el.innerText?.slice(0, 120) || '',
-    id:      el.id || '',
-    classes: typeof el.className === 'string' ? el.className : '',
-    xpath:   getXPath(el),
+    text:    (el.innerText || '').slice(0, 120),
     role:    el.getAttribute('role') || el.tagName.toLowerCase(),
     aria:    el.getAttribute('aria-label') || '',
     href:    el.closest('a')?.href || null,
     url:     window.location.href,
+    // Selectores ordenados de más a menos estable (Playwright los usa así)
+    selectors: {
+      testid,
+      id:     _isStableId(el.id) ? el.id : '',
+      name:   el.getAttribute('name') || '',
+      css:    getCssPath(el),
+      xpath:  getXPath(el),
+    },
+    // Conservar id "auto" por si la IA quiere usarlo igual
+    id_auto:    el.id && !_isStableId(el.id) ? el.id : '',
+    classes:    typeof el.className === 'string' ? el.className : '',
+    data_attrs: Object.keys(dataAttrs).length ? dataAttrs : undefined,
   };
 }
 
@@ -185,9 +238,16 @@ document.addEventListener('paste', (e) => {
 // Eso filtra elementos que el usuario simplemente scrolleó sin leer.
 
 const DWELL_MS      = 1500;   // tiempo mínimo visible para considerar "leído"
+const DWELL_MAX_MS  = 5000;   // tope: por encima asumimos que el elemento es siempre visible (header/footer)
 const SELECTORS     = ['h1','h2','h3','button','a','[role="button"]','[class*="price"]','[class*="precio"]'];
 const dwellMap      = new Map();  // element → timestamp de entrada al viewport
 const reportedDwell = new Set();  // xpath → ya reportado (evita duplicados)
+
+// Descarta elementos dentro de chrome del sitio (nav, header, footer).
+// Esos elementos siempre están visibles y reportan dwell falso de varios segundos.
+function isInSiteChrome(el) {
+  return !!el.closest('nav, header, footer, [role="navigation"], [role="banner"], [role="contentinfo"]');
+}
 
 const dwellObserver = new IntersectionObserver((entries) => {
   const now = Date.now();
@@ -207,14 +267,15 @@ const dwellObserver = new IntersectionObserver((entries) => {
       const dwell_ms = now - start;
       if (dwell_ms < DWELL_MS) continue;          // scrolleó rápido, ignorar
       if (reportedDwell.has(key)) continue;        // ya reportado
-      reportedDwell.add(key);
+      if (isInSiteChrome(el)) continue;            // header/nav/footer = ruido
 
       const text = el.innerText?.trim() || '';
       if (!text) continue;                         // sin texto visible, ignorar
 
+      reportedDwell.add(key);
       send('element_read', {
         ...elInfo(el),
-        dwell_ms,
+        dwell_ms: Math.min(dwell_ms, DWELL_MAX_MS),
       });
     }
   }
@@ -226,6 +287,7 @@ function observeElements() {
     if (dwellMap.has(el)) return;
     const key = getXPath(el);
     if (reportedDwell.has(key)) return;
+    if (isInSiteChrome(el)) return;
     dwellObserver.observe(el);
   });
 }
@@ -245,25 +307,43 @@ new MutationObserver(() => {
 // que están en pantalla en ese momento (el usuario los está leyendo).
 
 const PAUSE_MS = 1500;
+const PAUSE_MAX_ELEMENTS = 25;     // tope de elementos por snapshot
+const PAUSE_MIN_AREA_PX  = 800;    // descarta elementos diminutos (típicamente íconos del nav)
 let pauseTimer = null;
 let lastPausePct = -1;  // evita disparar si no hubo scroll real desde el último pause
 
-function getVisibleElements() {
-  const vTop    = window.scrollY;
-  const vBottom = vTop + window.innerHeight;
+function isReallyVisible(el) {
+  if (!el.offsetParent && getComputedStyle(el).position !== 'fixed') return false;
+  const cs = getComputedStyle(el);
+  if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) < 0.1) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 4 || r.height < 4) return false;
+  // dentro del viewport (con tolerancia de 30% del alto)
+  if (r.bottom < -r.height * 0.3) return false;
+  if (r.top > window.innerHeight + r.height * 0.3) return false;
+  return true;
+}
 
-  return document.querySelectorAll(SELECTORS.join(','))
-    // Solo elementos completamente o mayoritariamente visibles
-    .values()
-    ? [...document.querySelectorAll(SELECTORS.join(','))].filter(el => {
-        const r = el.getBoundingClientRect();
-        return r.top >= -r.height * 0.3 && r.bottom <= window.innerHeight + r.height * 0.3;
-      }).map(el => ({
-        tag:  el.tagName,
-        text: el.innerText?.trim().slice(0, 120) || '',
-        aria: el.getAttribute('aria-label') || '',
-      })).filter(e => e.text.length > 2)
-    : [];
+function getVisibleElements() {
+  const seen = new Set();
+  const out  = [];
+  for (const el of document.querySelectorAll(SELECTORS.join(','))) {
+    if (!isReallyVisible(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width * r.height < PAUSE_MIN_AREA_PX) continue;
+    const text = (el.innerText || '').trim().slice(0, 120);
+    if (text.length < 3) continue;
+    const key = `${el.tagName}|${text}`;
+    if (seen.has(key)) continue;          // dedup por tag+texto
+    seen.add(key);
+    out.push({
+      tag:  el.tagName,
+      text,
+      aria: el.getAttribute('aria-label') || '',
+    });
+    if (out.length >= PAUSE_MAX_ELEMENTS) break;
+  }
+  return out;
 }
 
 window.addEventListener('scroll', () => {
@@ -316,26 +396,68 @@ window.addEventListener('hashchange', () => {
 // Antes de salir de la página, resume el contenido clave que estaba disponible.
 // Mucho más útil para la IA que N eventos element_visible sueltos.
 
+// Patrones para detectar precios reales (no "No disponible" ni "Free trial")
+const _PRICE_PATTERN  = /([\$€£¥]\s*\d[\d.,]*|\d[\d.,]+\s*(?:USD|EUR|MXN|ARS|MX\$|US\$))/i;
+const _STOCK_PATTERN  = /(disponible|en stock|in stock|agotado|sin stock|out of stock|no disponible|sold out|temporalmente no disponible)/i;
+const _SHORTCUT_TOKEN = /(mayús|shift|alt|ctrl|cmd|command|⌘|⇧|⌥|⌃)\s*\+/i;
+
+// Limpia un texto: colapsa whitespace y trunca
+function _clean(text, max = 200) {
+  return (text || '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+// ¿El texto del botón es un atajo de teclado en vez de un CTA real?
+// Ej: "Agregar al carrito\nmayús\n+\nalt\n+\nK" → no es un CTA, es una hint.
+function _looksLikeKeyboardShortcut(text) {
+  return _SHORTCUT_TOKEN.test(text) || /\b[a-z]\b/i.test(text.split('\n').pop() || '');
+}
+
+function _extractPrice() {
+  // Buscar entre elementos típicos de precio, devolver el primer match de la regex
+  const candidates = document.querySelectorAll(
+    '[class*="price"],[class*="precio"],[class*="Price"],[class*="Precio"],[itemprop="price"],[data-price]'
+  );
+  for (const el of candidates) {
+    const txt = (el.innerText || '').trim();
+    const m   = txt.match(_PRICE_PATTERN);
+    if (m) return _clean(m[0], 30);
+  }
+  return '';
+}
+
+function _extractStock() {
+  const candidates = document.querySelectorAll(
+    '[id*="availability"],[class*="availability"],[class*="stock"],[id*="outOfStock"]'
+  );
+  for (const el of candidates) {
+    const txt = (el.innerText || '').trim();
+    const m   = txt.match(_STOCK_PATTERN);
+    if (m) return _clean(m[0], 50);
+  }
+  return '';
+}
+
+function _isInSiteChrome(el) {
+  return !!el.closest('nav, header, footer, [role="navigation"], [role="banner"], [role="contentinfo"]');
+}
+
 window.addEventListener('beforeunload', () => {
   const duration_ms = Date.now() - pageLoadTime;
 
-  // Heading principal
-  const h1 = document.querySelector('h1')?.innerText?.trim().slice(0, 200) || '';
+  const h1 = _clean(document.querySelector('h1')?.innerText, 200);
 
-  // Precio principal (busca patrones comunes)
-  const priceEl = document.querySelector('[class*="price"],[class*="precio"],[class*="Price"],[class*="Precio"]');
-  const price   = priceEl?.innerText?.trim().slice(0, 50) || '';
-
-  // Botones de acción visibles (CTA)
+  // Botones reales: con texto, no hints de atajos de teclado, no dentro del chrome del sitio
   const buttons = [...document.querySelectorAll('button,[role="button"]')]
-    .map(b => b.innerText?.trim())
-    .filter(t => t && t.length > 2 && t.length < 60)
+    .filter(b => !_isInSiteChrome(b))
+    .map(b => _clean(b.innerText, 60))
+    .filter(t => t.length > 2 && t.length < 60 && !_looksLikeKeyboardShortcut(t))
     .slice(0, 6);
 
-  // Headings h2 visibles (secciones leídas)
+  // Secciones: h2/h3 fuera de nav/header/footer
   const sections = [...document.querySelectorAll('h2,h3')]
-    .map(h => h.innerText?.trim().slice(0, 80))
-    .filter(t => t && t.length > 3)
+    .filter(h => !_isInSiteChrome(h))
+    .map(h => _clean(h.innerText, 80))
+    .filter(t => t.length > 3)
     .slice(0, 8);
 
   send('page_summary', {
@@ -343,7 +465,8 @@ window.addEventListener('beforeunload', () => {
     title:       document.title,
     duration_ms,
     h1,
-    price,
+    price:       _extractPrice(),
+    availability: _extractStock(),
     buttons,
     sections,
   });

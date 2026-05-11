@@ -1,5 +1,7 @@
 import time, os, uuid
 
+from schema import clean_event_data
+
 
 class EventManager:
     def __init__(self):
@@ -15,7 +17,7 @@ class EventManager:
             "time":   t,
             "source": source,
             "type":   type_,
-            "data":   data,
+            "data":   clean_event_data(type_, data),
         })
 
     def get_dir(self):

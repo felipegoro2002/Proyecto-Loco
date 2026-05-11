@@ -65,8 +65,11 @@ _SPECIAL = {
 _DOUBLE_CLICK_MS  = 500
 _DOUBLE_CLICK_PX  = 10
 
-# Umbral para considerar movimiento como drag
-_DRAG_THRESHOLD_PX = 8
+# Umbral para considerar movimiento como drag.
+# Selecciones de texto cortas en browsers tipicamente caen en 8-25 px;
+# duraciones <200 ms casi nunca son drags reales sino flicks accidentales.
+_DRAG_THRESHOLD_PX = 30
+_DRAG_MIN_DURATION_MS = 200
 
 
 # ── Listeners ──────────────────────────────────────────────────────────────────
@@ -220,16 +223,18 @@ def start_listeners(manager):
         else:
             # Botón soltado → ¿fue drag?
             if drag_state["active"] and drag_state["dragging"]:
-                window = get_active_window()
-                manager.add_event("system", "drag", {
-                    "from_x":     drag_state["x"],
-                    "from_y":     drag_state["y"],
-                    "to_x":       x,
-                    "to_y":       y,
-                    "button":     btn_str,
-                    "duration_ms": round((time.time() - drag_state["t"]) * 1000),
-                    **window,
-                })
+                duration_ms = round((time.time() - drag_state["t"]) * 1000)
+                if duration_ms >= _DRAG_MIN_DURATION_MS:
+                    window = get_active_window()
+                    manager.add_event("system", "drag", {
+                        "from_x":     drag_state["x"],
+                        "from_y":     drag_state["y"],
+                        "to_x":       x,
+                        "to_y":       y,
+                        "button":     btn_str,
+                        "duration_ms": duration_ms,
+                        **window,
+                    })
             drag_state["active"]   = False
             drag_state["dragging"] = False
 
