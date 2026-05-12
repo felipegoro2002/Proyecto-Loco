@@ -245,7 +245,7 @@ const reportedDwell = new Set();  // xpath → ya reportado (evita duplicados)
 
 // Descarta elementos dentro de chrome del sitio (nav, header, footer).
 // Esos elementos siempre están visibles y reportan dwell falso de varios segundos.
-function isInSiteChrome(el) {
+function _isInSiteChrome(el) {
   return !!el.closest('nav, header, footer, [role="navigation"], [role="banner"], [role="contentinfo"]');
 }
 
@@ -267,7 +267,7 @@ const dwellObserver = new IntersectionObserver((entries) => {
       const dwell_ms = now - start;
       if (dwell_ms < DWELL_MS) continue;          // scrolleó rápido, ignorar
       if (reportedDwell.has(key)) continue;        // ya reportado
-      if (isInSiteChrome(el)) continue;            // header/nav/footer = ruido
+      if (_isInSiteChrome(el)) continue;           // header/nav/footer = ruido
 
       const text = el.innerText?.trim() || '';
       if (!text) continue;                         // sin texto visible, ignorar
@@ -287,7 +287,7 @@ function observeElements() {
     if (dwellMap.has(el)) return;
     const key = getXPath(el);
     if (reportedDwell.has(key)) return;
-    if (isInSiteChrome(el)) return;
+    if (_isInSiteChrome(el)) return;
     dwellObserver.observe(el);
   });
 }
@@ -506,10 +506,6 @@ function _extractStock() {
     if (m) return _clean(m[0], 50);
   }
   return '';
-}
-
-function _isInSiteChrome(el) {
-  return !!el.closest('nav, header, footer, [role="navigation"], [role="banner"], [role="contentinfo"]');
 }
 
 window.addEventListener('beforeunload', () => {

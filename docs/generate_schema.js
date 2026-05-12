@@ -1,7 +1,6 @@
 const {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
   AlignmentType, HeadingLevel, BorderStyle, WidthType, ShadingType,
-  VerticalAlign, LevelFormat, Header, PageNumber
 } = require('docx');
 const fs = require('fs');
 
@@ -18,15 +17,26 @@ function p(text, opts = {}) {
   return new Paragraph({ children: [new TextRun({ text, ...opts })] });
 }
 
-function hr() {
+function mono(text) {
+  return new TextRun({ text, font: "Courier New", size: 18 });
+}
+
+function code(lines) {
   return new Paragraph({
-    border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC", space: 1 } },
-    children: []
+    children: [new TextRun({
+      text: Array.isArray(lines) ? lines.join("\n") : lines,
+      font: "Courier New", size: 17
+    })]
   });
 }
 
-function mono(text) {
-  return new TextRun({ text, font: "Courier New", size: 18 });
+function note(text) {
+  return new Paragraph({
+    spacing: { before: 60 },
+    children: [new TextRun({
+      text, size: 18, color: "555555", font: "Courier New"
+    })]
+  });
 }
 
 function headerRow(cols, widths) {
@@ -57,7 +67,7 @@ function row(cols, widths, shade = false) {
   });
 }
 
-function eventTable(title, color, rows_data, cols, widths) {
+function eventTable(title, color, rows_data, cols = ["Campo", "Tipo", "Descripcion"], widths = [1800, 1400, 6160]) {
   return [
     new Paragraph({
       spacing: { before: 300, after: 100 },
@@ -80,429 +90,425 @@ const sections_content = [
 
   // Portada
   h("Esquema de Eventos — Proyecto Loco", HeadingLevel.HEADING_1),
-  p("Referencia completa de todos los tipos de eventos generados por el recorder.", { size: 22, color: "555555" }),
-  p("Fase 1: Captura de sesiones de usuario para automatizacion con IA.", { size: 20, color: "777777" }),
+  p("Referencia completa de los eventos generados por el recorder y del formato final que recibe la IA.", { size: 22, color: "555555" }),
+  p("Fase 1: captura y estructuracion de sesiones de usuario.", { size: 20, color: "777777" }),
   p(""),
 
-  // Pipeline
+  // ── 1. Pipeline ─────────────────────────────────────────────────────────────
   h("1. Pipeline general", HeadingLevel.HEADING_2),
-  p("El sistema combina tres fuentes de captura que convergen en un archivo JSON comprimido:"),
+  p("Tres fuentes convergen en session.json. Despues compressor.py filtra y reshape() reorganiza la salida en dos arrays: acciones cronologicas y paginas con contenido."),
   p(""),
-  new Paragraph({
-    children: [new TextRun({
-      text: [
-        "  Usuario actua",
-        "      |",
-        "      +-- input_listener.py  -->  clicks, teclado, scroll, drag  (sistema)",
-        "      +-- content.js         -->  browser events, dwell time, hover",
-        "      +-- video_recorder.py  -->  screen.mp4 + audio.wav",
-        "                |",
-        "                v",
-        "         background.js  (pre-filtro de network en el browser)",
-        "           - Solo APIs del mismo dominio raiz que la pagina activa",
-        "           - Descarta cross-origin: tracking, ads, analytics",
-        "           - Descarta RPC interna de Google Workspace (clients6.google.com)",
-        "                |",
-        "                v",
-        "         EventManager  (normaliza timestamps y fuente)",
-        "                |",
-        "                v",
-        "         session.json  (eventos en crudo)",
-        "                |",
-        "                v",
-        "         compressor.py",
-        "           - network       --> segunda pasada: descarta paths de telemetria",
-        "           - scroll        --> agrupa rafagas en scroll_summary",
-        "           - element_read  --> filtra breadcrumbs y paginacion, deduplica",
-        "           - hover         --> solo tags semanticos con texto real (>= 800ms)",
-        "           - reading_pause --> descarta si scroll_pct < 5%",
-        "           - focus/blur/keydown/time_on_page --> descartados siempre",
-        "           - page_summary con duration < 500ms --> descarta (redirect/bounce)",
-        "                |",
-        "                v",
-        "    session_compressed.json  -->  IA",
-      ].join("\n"),
-      font: "Courier New", size: 17
-    })]
-  }),
+  code([
+    "  Usuario actua",
+    "      |",
+    "      +-- input_listener.py  -->  clicks, teclado, scroll, drag         (system)",
+    "      +-- content.js         -->  clicks, inputs, dwell, navegacion     (browser)",
+    "      +-- video_recorder.py  -->  screen.mp4 + audio.wav                (video)",
+    "                |",
+    "                v",
+    "         background.js  (pre-filtro de network)",
+    "           - Solo APIs del mismo dominio raiz que la pagina activa",
+    "           - Descarta cross-origin: tracking, ads, analytics, recursos estaticos",
+    "           - Descarta RPC interna de Google Workspace (clients<N>.google.com)",
+    "                |",
+    "                v",
+    "         browser_server.py + EventManager",
+    "           - Normaliza time relativo, source, type",
+    "           - clean_event_data() filtra campos no declarados en schema.py",
+    "                |",
+    "                +-- transcribe.py      -->  speech    (Whisper, autodetect)",
+    "                +-- frame_extractor.py -->  screenshot (page_load / speech / ambient)",
+    "                |",
+    "                v",
+    "         session.json  (eventos en crudo, lista plana ordenada por time)",
+    "                |",
+    "                v",
+    "         compressor.py — PIPELINE declarativa",
+    "           drop_noise_types         (focus/blur/keydown/time_on_page)",
+    "           drop_redirect_pages      (page_load/summary/screenshot en google.com/url)",
+    "           drop_short_page_summary  (duration < 500ms)",
+    "           filter_network           (tracking de mismo sitio que paso el filtro)",
+    "           filter_element_read      (breadcrumb / paginacion / dedup global)",
+    "           filter_hover             (>=800ms, solo tags semanticos con texto)",
+    "           filter_reading_pause     (scroll_pct < 5%)",
+    "           cap_reading_pause_elements (tope 25 elementos)",
+    "           compress_scroll          (rafagas contiguas -> scroll_summary)",
+    "                |",
+    "                v",
+    "         reshape() — separa acciones de contenido",
+    "                |",
+    "                v",
+    "    session_compressed.json  =  { actions: [...], pages: [...] }  -->  IA",
+  ]),
   p(""),
 
-  // Fuentes
+  // ── 2. Fuentes ──────────────────────────────────────────────────────────────
   h("2. Fuentes de eventos", HeadingLevel.HEADING_2),
   new Table({
     width: { size: W, type: WidthType.DXA },
-    columnWidths: [2000, 2500, 4860],
+    columnWidths: [1600, 2800, 4960],
     rows: [
-      headerRow(["Fuente", "Modulo", "Descripcion"], [2000, 2500, 4860]),
-      row(["system", "input_listener.py", "Teclado y mouse globales via pynput"], [2000, 2500, 4860], false),
-      row(["browser", "content.js + browser_server.py", "Eventos del DOM via extension Chrome"], [2000, 2500, 4860], true),
-      row(["speech", "transcribe.py (Whisper small)", "Transcripcion del audio del microfono"], [2000, 2500, 4860], false),
+      headerRow(["source", "Modulo", "Descripcion"], [1600, 2800, 4960]),
+      row(["system",  "input_listener.py",              "Teclado y mouse globales (pynput)"],                [1600, 2800, 4960], false),
+      row(["browser", "content.js + browser_server.py", "Eventos del DOM y network via extension Chrome"],   [1600, 2800, 4960], true),
+      row(["speech",  "transcribe.py (Whisper)",        "Transcripcion del audio del microfono (autodetect)"], [1600, 2800, 4960], false),
+      row(["video",   "frame_extractor.py",             "Frames JPEG extraidos del screen.mp4"],             [1600, 2800, 4960], true),
     ]
   }),
   p(""),
 
-  // Eventos sistema
+  // ── 3. Sistema ──────────────────────────────────────────────────────────────
   h("3. Eventos del sistema", HeadingLevel.HEADING_2),
 
-  ...eventTable("3.1 typed — texto escrito", "1a6b3c",
-    [
-      ["text", "string", "Texto acumulado (buffer 1.2s, backspace aplicado)"],
-      ["app", "string", "Nombre del proceso activo  (ej: chrome.exe)"],
-      ["window_title", "string", "Titulo de la ventana activa"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
+  ...eventTable("3.1 typed — texto escrito", "1a6b3c", [
+    ["text", "string", "Buffer acumulado de 1.2s con backspace aplicado"],
+    ["app", "string", "Proceso activo (ej: chrome.exe)"],
+    ["window_title", "string", "Titulo de la ventana activa"],
+  ]),
 
-  ...eventTable("3.2 shortcut — atajo de teclado", "1a6b3c",
-    [
-      ["keys", "string", "Combinacion  (ej: Ctrl+C, Alt+Tab, Ctrl+Shift+T)"],
-      ["app", "string", "Proceso activo"],
-      ["window_title", "string", "Titulo de ventana"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
+  ...eventTable("3.2 key — tecla especial suelta", "1a6b3c", [
+    ["key", "string", "Enter / Tab / Escape / Arrow* / F1..F12 / etc."],
+    ["app, window_title", "string", "Ventana activa al momento de la pulsacion"],
+  ]),
 
-  ...eventTable("3.3 click / double_click", "1a6b3c",
-    [
-      ["x, y", "int", "Coordenadas en pantalla"],
-      ["button", "string", "Button.left / Button.right"],
-      ["app", "string", "Proceso activo"],
-      ["window_title", "string", "Titulo de ventana"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
+  ...eventTable("3.3 shortcut — atajo con modificadores", "1a6b3c", [
+    ["keys", "string", "Combinacion (ej: Ctrl+C, Alt+Tab, Ctrl+Shift+T)"],
+    ["app, window_title", "string", "Ventana activa"],
+  ]),
 
-  ...eventTable("3.4 drag", "1a6b3c",
-    [
-      ["from_x, from_y", "int", "Coordenada de inicio del arrastre"],
-      ["to_x, to_y", "int", "Coordenada de fin"],
-      ["button", "string", "Boton del mouse"],
-      ["duration_ms", "int", "Duracion del drag en milisegundos"],
-      ["app", "string", "Proceso activo"],
-      ["window_title", "string", "Titulo de ventana"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
+  ...eventTable("3.4 click / double_click", "1a6b3c", [
+    ["x, y", "int", "Coordenadas en pantalla"],
+    ["button", "string", "Button.left / Button.right / Button.middle"],
+    ["app, window_title", "string", "Ventana activa"],
+  ]),
+  note("  click acepta tambien los campos de browser (tag, text, selectors...) cuando viene del DOM."),
 
-  ...eventTable("3.5 scroll_summary (comprimido)", "1a6b3c",
-    [
-      ["direction", "string", "up / down / horizontal"],
-      ["delta_y", "float", "Suma de desplazamiento vertical"],
-      ["delta_x", "float", "Suma de desplazamiento horizontal"],
-      ["scroll_count", "int", "Cantidad de eventos de scroll agrupados"],
-      ["duration_s", "float", "Duracion total del grupo en segundos"],
-      ["app", "string", "Proceso activo"],
-      ["window_title", "string", "Titulo de ventana"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
+  ...eventTable("3.5 drag", "1a6b3c", [
+    ["from_x, from_y", "int", "Coordenada de inicio del arrastre"],
+    ["to_x, to_y", "int", "Coordenada de fin"],
+    ["button", "string", "Boton del mouse"],
+    ["duration_ms", "int", "Duracion del drag (descarta < 200ms)"],
+    ["app, window_title", "string", "Ventana activa"],
+  ]),
+  note("  Umbral: 30 px de movimiento Y >=200 ms de duracion. Filtra flicks accidentales."),
+
+  ...eventTable("3.6 scroll_summary (comprimido)", "1a6b3c", [
+    ["direction", "string", "down / up / horizontal"],
+    ["delta_y, delta_x", "float", "Suma de desplazamiento en el grupo"],
+    ["scroll_count", "int", "Cantidad de eventos de scroll agrupados"],
+    ["duration_s", "float", "Duracion total del grupo en segundos"],
+    ["from_y, to_y, viewport_pct, url", "—", "Solo si la rafaga es de browser"],
+    ["app, window_title", "string", "Solo si la rafaga es de sistema"],
+  ]),
+  note("  compress_scroll agrupa eventos scroll contiguos (gap <= 2s) y descarta sumarios sin movimiento neto."),
 
   p(""),
 
-  // Eventos browser
+  // ── 4. Browser — campos base ────────────────────────────────────────────────
   h("4. Eventos del browser", HeadingLevel.HEADING_2),
 
-  p("Todos los eventos del browser incluyen los campos base:", { bold: true }),
+  p("Casi todos los eventos del browser incluyen los siguientes campos base (extraidos por elInfo() en content.js):", { bold: true }),
   new Table({
     width: { size: W, type: WidthType.DXA },
     columnWidths: [1800, 1400, 6160],
     rows: [
       headerRow(["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]),
-      row(["tag", "string", "Tag HTML del elemento (H1, BUTTON, A, SPAN...)"], [1800, 1400, 6160], false),
-      row(["text", "string", "innerText del elemento (max 120 chars)"], [1800, 1400, 6160], true),
-      row(["id", "string", "Atributo id del elemento"], [1800, 1400, 6160], false),
-      row(["xpath", "string", "XPath unico del elemento en el DOM"], [1800, 1400, 6160], true),
-      row(["role", "string", "Atributo role o tagName en minusculas"], [1800, 1400, 6160], false),
-      row(["aria", "string", "aria-label del elemento"], [1800, 1400, 6160], true),
-      row(["href", "string|null", "URL del anchor mas cercano"], [1800, 1400, 6160], false),
-      row(["url", "string", "URL de la pagina actual"], [1800, 1400, 6160], true),
+      row(["tag",        "string",       "Tag HTML (H1, BUTTON, A, INPUT, SPAN...)"],                       [1800, 1400, 6160], false),
+      row(["text",       "string",       "innerText del elemento, truncado a 120 chars"],                   [1800, 1400, 6160], true),
+      row(["role",       "string",       "Atributo role o tagName en minusculas"],                          [1800, 1400, 6160], false),
+      row(["aria",       "string",       "aria-label del elemento"],                                        [1800, 1400, 6160], true),
+      row(["href",       "string|null",  "URL del anchor mas cercano"],                                     [1800, 1400, 6160], false),
+      row(["url",        "string",       "URL de la pagina al momento del evento"],                         [1800, 1400, 6160], true),
+      row(["selectors",  "object",       "{ testid, id, name, css, xpath } ordenados por estabilidad"],     [1800, 1400, 6160], false),
+      row(["id_auto",    "string",       "id del elemento si parece auto-generado (j_idt, view_24...)"],    [1800, 1400, 6160], true),
+      row(["classes",    "string",       "className del elemento"],                                         [1800, 1400, 6160], false),
+      row(["data_attrs", "object",       "Todos los atributos data-* del elemento (si los hay)"],           [1800, 1400, 6160], true),
     ]
   }),
+  note([
+    "  selectors.testid > selectors.id > selectors.name > selectors.css > selectors.xpath",
+    "  La IA debe usar el primero no vacio. xpath es ultimo recurso porque rompe ante cambios de DOM.",
+    "  getXPath() y getCssPath() saltan ids inestables (j_idt, view_24, css-xyz, ng-*, mat-*, etc.)",
+  ].join("\n")),
 
-  ...eventTable("4.1 page_load", "0066cc",
-    [
-      ["url", "string", "URL de la pagina cargada"],
-      ["title", "string", "document.title"],
-      ["referrer", "string", "URL de origen"],
-      ["description", "string", "Meta description de la pagina"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
+  ...eventTable("4.1 page_load", "0066cc", [
+    ["url", "string", "URL cargada"],
+    ["title", "string", "document.title"],
+    ["referrer", "string", "URL de origen"],
+    ["context", "object|null", "Datos estructurados de la pagina — ver seccion 5"],
+  ]),
 
-  ...eventTable("4.2 spa_navigation / hash_navigation", "0066cc",
-    [
-      ["url", "string", "Nueva URL tras la navegacion SPA"],
-      ["title", "string", "document.title actualizado"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
+  ...eventTable("4.2 spa_navigation", "0066cc", [
+    ["url", "string", "Nueva URL tras history.pushState / popstate"],
+    ["title", "string", "document.title actualizado"],
+    ["context", "object|null", "Datos estructurados de la pagina — ver seccion 5"],
+  ]),
+  note("  Se dispara 300ms despues del cambio de URL para dar tiempo a que la SPA renderice el nuevo DOM."),
 
-  ...eventTable("4.3 click", "0066cc",
-    [
-      ["x, y", "int", "Coordenadas del click en el viewport"],
-      ["...campos base", "", "tag, text, id, xpath, role, aria, href, url"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
+  ...eventTable("4.3 hash_navigation", "0066cc", [
+    ["url", "string", "URL con el nuevo fragment (#seccion)"],
+    ["title", "string", "document.title"],
+  ]),
 
-  ...eventTable("4.4 input", "0066cc",
-    [
-      ["value", "string", "Valor actual del campo (debounce 800ms)"],
-      ["input_type", "string", "Tipo del input (text, email, search...)"],
-      ["...campos base", "", "tag, text, id, xpath, url"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
+  ...eventTable("4.4 click", "0066cc", [
+    ["x, y", "int", "Coordenadas del click en el viewport"],
+    ["button", "string", "left / right / middle"],
+    ["...campos base", "", "tag, text, selectors, href, etc."],
+  ]),
 
-  ...eventTable("4.5 element_read  (reemplaza element_visible)", "0066cc",
-    [
-      ["dwell_ms", "int", "Tiempo que el elemento estuvo visible (minimo 1500ms)"],
-      ["...campos base", "", "tag, text, id, xpath, role, aria, href, url"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
-  new Paragraph({
-    spacing: { before: 60 },
-    children: [new TextRun({
-      text: "  Solo se emite cuando el usuario tuvo el elemento visible al menos 1500ms (dwell time).\n  Filtrado adicional en compressor: se descartan links de breadcrumb (solo minusculas, sin precio).",
-      size: 18, color: "555555", font: "Courier New"
-    })]
-  }),
+  ...eventTable("4.5 input", "0066cc", [
+    ["value", "string", "Valor actual del campo (debounce 800ms)"],
+    ["input_type", "string", "Tipo del input (text, email, search, password...)"],
+    ["...campos base", "", "tag, selectors, etc."],
+  ]),
 
-  ...eventTable("4.6 reading_pause", "0066cc",
-    [
-      ["scroll_pct", "int", "Posicion de scroll en porcentaje (0-100)"],
-      ["elements", "array", "Lista de elementos visibles en pantalla al pausar el scroll"],
-      ["elements[].tag", "string", "Tag del elemento"],
-      ["elements[].text", "string", "Texto visible (max 120 chars)"],
-      ["elements[].aria", "string", "aria-label"],
-      ["url", "string", "URL de la pagina"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
-  new Paragraph({
-    spacing: { before: 60 },
-    children: [new TextRun({
-      text: "  Se emite cuando el scroll se detiene 1500ms. Filtrado en compressor: se descarta si scroll_pct < 5%.",
-      size: 18, color: "555555", font: "Courier New"
-    })]
-  }),
+  ...eventTable("4.6 hover", "0066cc", [
+    ["duration_ms", "int", "Tiempo del cursor sobre el elemento (capture y compressor: >=800ms)"],
+    ["x, y", "int", "Coordenadas del cursor al salir del elemento"],
+    ["...campos base", "", "tag, text, selectors..."],
+  ]),
+  note("  El compressor descarta hovers sobre tags no semanticos y los sin texto/aria."),
 
-  ...eventTable("4.7 page_summary  (al salir de la pagina)", "0066cc",
-    [
-      ["url", "string", "URL de la pagina"],
-      ["title", "string", "Titulo de la pagina"],
-      ["duration_ms", "int", "Tiempo total en la pagina en ms"],
-      ["h1", "string", "Texto del heading principal (max 200 chars)"],
-      ["price", "string", "Precio detectado por clase CSS (max 50 chars)"],
-      ["buttons", "string[]", "Textos de los primeros 6 botones visibles"],
-      ["sections", "string[]", "Textos de los primeros 8 headings h2/h3"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
+  ...eventTable("4.7 element_read (dwell time)", "0066cc", [
+    ["dwell_ms", "int", "Tiempo visible en viewport (>=1500ms, cap 5000ms)"],
+    ["...campos base", "", "tag, text, selectors, etc."],
+  ]),
+  note([
+    "  Se emite cuando el elemento estuvo visible >=1500ms (threshold 50% del bbox).",
+    "  Se descartan elementos dentro de nav/header/footer (chrome del sitio, ruido).",
+    "  El compressor dedup por (xpath, url) y descarta breadcrumbs/paginacion.",
+  ].join("\n")),
 
-  ...eventTable("4.8 hover", "0066cc",
-    [
-      ["duration_ms", "int", "Tiempo que el cursor estuvo sobre el elemento (minimo 600ms captura, 800ms compressor)"],
-      ["x, y", "int", "Coordenadas del cursor al salir del elemento"],
-      ["...campos base", "", "tag, text, id, xpath, role, aria, href, url"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
-  new Paragraph({
-    spacing: { before: 60 },
-    children: [new TextRun({
-      text: "  El compressor filtra hovers sobre tags contenedor (DIV, SECTION…) y texto vacio o solo espacios.",
-      size: 18, color: "555555", font: "Courier New"
-    })]
-  }),
+  ...eventTable("4.8 reading_pause", "0066cc", [
+    ["scroll_pct", "int", "Posicion de scroll en porcentaje (0-100)"],
+    ["elements", "array", "Hasta 25 elementos visibles {tag, text, aria}"],
+    ["url", "string", "URL de la pagina"],
+  ]),
+  note([
+    "  Snapshot al detenerse el scroll 1500ms. Filtra elementos diminutos (< 800 px2)",
+    "  y dedup por (tag, text). isReallyVisible() chequea display/visibility/opacity/bbox.",
+    "  El compressor descarta pausas con scroll_pct < 5% (cerca del tope = navegacion).",
+  ].join("\n")),
 
-  ...eventTable("4.9 text_select / copy / paste", "0066cc",
-    [
-      ["selected_text / text", "string", "Texto seleccionado o en clipboard (max 300 chars)"],
-      ["url", "string", "URL de la pagina (text_select y copy)"],
-      ["...campos base", "", "Campos del elemento destino (solo paste)"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
+  ...eventTable("4.9 page_summary (al salir de la pagina)", "0066cc", [
+    ["url", "string", "URL de la pagina"],
+    ["title", "string", "Titulo"],
+    ["duration_ms", "int", "Tiempo total en la pagina"],
+    ["h1", "string", "Texto del heading principal (whitespace colapsado, max 200)"],
+    ["price", "string", "Precio detectado (regex sobre clases CSS de precio)"],
+    ["availability", "string", "Disponibilidad / stock detectado"],
+    ["buttons", "string[]", "Hasta 6 CTAs reales (no atajos de teclado, fuera de site chrome)"],
+    ["sections", "string[]", "Hasta 8 textos de h2/h3 fuera de site chrome"],
+  ]),
 
-  ...eventTable("4.10 network  (filtrado por background.js + compressor)", "0066cc",
-    [
-      ["url", "string", "URL del request (solo APIs del mismo dominio raiz)"],
-      ["method", "string", "GET / POST / etc."],
-      ["status", "int", "Codigo HTTP de respuesta"],
-      ["tab_url", "string", "Origen de la pagina que genero el request"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
-  new Paragraph({
-    spacing: { before: 60 },
-    children: [new TextRun({
-      text: [
-        "  Filtro en dos etapas:",
-        "  1. background.js: solo pasan requests del mismo dominio raiz que la pagina.",
-        "     Esto elimina automaticamente tracking, ads y analytics cross-origin.",
-        "  2. compressor.py: segunda pasada para paths de telemetria del propio sitio.",
-        "  Resultado: solo quedan APIs de producto reales (ej: /graphql, /p/api/deferred).",
-      ].join("\n"),
-      size: 18, color: "555555", font: "Courier New"
-    })]
-  }),
+  ...eventTable("4.10 text_select", "0066cc", [
+    ["selected_text", "string", "Texto seleccionado con el mouse (max 300)"],
+    ["url", "string", "URL de la pagina"],
+  ]),
+
+  ...eventTable("4.11 copy", "0066cc", [
+    ["text", "string", "Texto copiado al clipboard (max 300)"],
+    ["url", "string", "URL de la pagina"],
+  ]),
+
+  ...eventTable("4.12 paste", "0066cc", [
+    ["text", "string", "Texto pegado (max 300)"],
+    ["...campos base", "", "Campos del elemento destino del pegado"],
+  ]),
+
+  ...eventTable("4.13 network (filtrado en dos etapas)", "0066cc", [
+    ["url", "string", "URL del request"],
+    ["method", "string", "GET / POST / etc."],
+    ["status", "int", "Codigo HTTP"],
+    ["tab_url", "string", "Origen del request (initiator)"],
+  ]),
+  note([
+    "  Etapa 1 (background.js): solo APIs del mismo dominio raiz que la pagina activa,",
+    "    descarta recursos estaticos, tracking y RPC interna de Google Workspace.",
+    "  Etapa 2 (compressor.py): segunda pasada de paths de telemetria del propio sitio.",
+    "  Etapa 3 (reshape): descarta tambien google.com/url al asignar al array de network de la pagina.",
+  ].join("\n")),
+
+  ...eventTable("4.14 api_response (interceptor fetch/XHR)", "0066cc", [
+    ["url", "string", "URL de la API"],
+    ["body", "string", "Primeros 3000 bytes del JSON de respuesta"],
+    ["page_url", "string", "URL de la pagina que disparo el request"],
+  ]),
+  note([
+    "  Solo si la URL matchea patrones de API de producto (/graphql, /pdp, /p/api...)",
+    "  y el body contiene name|price|title|stock|product. Intercepta fetch() y XHR.",
+    "  Limitacion: no captura requests hechos desde service workers o respuestas SSR.",
+  ].join("\n")),
 
   p(""),
 
-  // API response
-  h("5. api_response  (interceptor fetch/XHR)", HeadingLevel.HEADING_2),
-  p("Cuando content.js detecta un fetch() o XHR hacia una API de producto, captura los primeros 3KB del body de respuesta:"),
+  // ── 5. context ──────────────────────────────────────────────────────────────
+  h("5. context — extractPageContext()", HeadingLevel.HEADING_2),
+  p("Datos estructurados que ya estan en el HTML de la pagina, leidos al disparar page_load / spa_navigation. No requiere interceptar red."),
   p(""),
-  ...eventTable("api_response", "0066cc",
-    [
-      ["url", "string", "URL de la API llamada"],
-      ["body", "string", "Primeros 3000 bytes del body JSON de respuesta"],
-      ["page_url", "string", "URL de la pagina desde donde se hizo el request"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
-  new Paragraph({
-    spacing: { before: 60 },
-    children: [new TextRun({
-      text: [
-        "  Solo se captura si la URL coincide con patrones de API de producto",
-        "  (/graphql, /orchestra/api, /p/api, /pdp/graphql, /product, /item, /deferred)",
-        "  y el body contiene terminos como name, price, title, stock o product.",
-        "  El interceptor cubre fetch() y XMLHttpRequest en el contexto principal de la pagina.",
-      ].join("\n"),
-      size: 18, color: "555555", font: "Courier New"
-    })]
-  }),
-
-  p(""),
-
-  // Screenshots
-  h("6. Eventos de video (screenshot)", HeadingLevel.HEADING_2),
-  p("El frame_extractor extrae JPEGs del video grabado en tres momentos clave y los agrega como eventos screenshot al session.json:"),
-  p(""),
-  new Paragraph({
-    children: [new TextRun({
-      text: [
-        "  page_load  →  frame al instante en que cargo cada pagina",
-        "  speech     →  frame al inicio de cada frase del usuario",
-        "  ambient    →  frame cada N segundos (default: 10s)",
-      ].join("\n"),
-      font: "Courier New", size: 17
-    })]
-  }),
-  p(""),
-  ...eventTable("screenshot", "5C4033",
-    [
-      ["frame",   "string",      "Ruta relativa al JPEG  (ej: frames/frame_13.5.jpg)"],
-      ["trigger", "string",      "Razon de captura: page_load | speech | ambient"],
-      ["url",     "string",      "URL de la pagina (solo en page_load)"],
-      ["text",    "string",      "Frase del usuario (solo en speech)"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
-  new Paragraph({
-    spacing: { before: 100 },
-    children: [new TextRun({
-      text: [
-        "  Los frames estan disponibles en session/frames/ pero la IA no esta obligada",
-        "  a analizarlos. El session_compressed.json ya contiene suficiente informacion",
-        "  textual para entender la tarea en la mayoria de los casos.",
-        "  Los screenshots son un recurso adicional que la IA puede consultar",
-        "  selectivamente cuando necesite confirmar algo visual:",
-        "    - Verificar el contenido de una pagina",
-        "    - Leer un precio o dato que el browser no capturo",
-        "    - Entender el estado de una app de escritorio",
-        "  Esto mantiene el costo de procesamiento bajo control.",
-      ].join("\n"),
-      size: 18, color: "555555", font: "Courier New"
-    })]
-  }),
-
-  p(""),
-
-  // Speech
-  h("8. Evento de audio (speech)", HeadingLevel.HEADING_2),
-  ...eventTable("speech — transcripcion de Whisper", "8B0000",
-    [
-      ["text", "string", "Texto transcripto del segmento de audio"],
-      ["start", "float", "Segundo de inicio del segmento en el audio"],
-      ["end", "float", "Segundo de fin del segmento"],
-    ],
-    ["Campo", "Tipo", "Descripcion"], [1800, 1400, 6160]
-  ),
-  new Paragraph({
-    spacing: { before: 60 },
-    children: [new TextRun({
-      text: "  Modelo: Whisper small. El tiempo del evento se alinea con el inicio de la grabacion.",
-      size: 18, color: "555555", font: "Courier New"
-    })]
-  }),
-
-  p(""),
-
-  // Estructura del JSON
-  h("9. Estructura de un evento en session_compressed.json", HeadingLevel.HEADING_2),
-  new Paragraph({
-    children: [new TextRun({
-      text: [
-        '{',
-        '  "time":   27.4,          // segundos desde inicio de sesion',
-        '  "source": "browser",     // "system" | "browser" | "speech"',
-        '  "type":   "element_read",',
-        '  "data": {',
-        '    "tag":      "H1",',
-        '    "text":     "Camara de Seguridad TP-Link Tapo Smart",',
-        '    "xpath":    "//*[@id=\'item-title\']",',
-        '    "url":      "https://www.mercadolibre.com.mx/...",',
-        '    "dwell_ms": 5162',
-        '  }',
-        '}',
-      ].join("\n"),
-      font: "Courier New", size: 17
-    })]
-  }),
-
-  p(""),
-
-  // Tabla resumen
-  h("9. Resumen de tipos por frecuencia tipica", HeadingLevel.HEADING_2),
   new Table({
     width: { size: W, type: WidthType.DXA },
-    columnWidths: [2400, 2000, 2000, 2960],
+    columnWidths: [1800, 1400, 6160],
     rows: [
-      headerRow(["Tipo", "Fuente", "Frecuencia", "Valor para la IA"], [2400, 2000, 2000, 2960]),
-      row(["speech",          "speech",  "Baja",     "Muy alto — explica la intencion"],        [2400, 2000, 2000, 2960], false),
-      row(["page_summary",    "browser", "1/pagina", "Muy alto — resumen estructurado"],        [2400, 2000, 2000, 2960], true),
-      row(["page_load",       "browser", "Baja",     "Alto — trackea navegacion"],              [2400, 2000, 2000, 2960], false),
-      row(["typed",           "system",  "Media",    "Alto — captura input del usuario"],       [2400, 2000, 2000, 2960], true),
-      row(["element_read",    "browser", "Media",    "Alto — que leyo el usuario"],             [2400, 2000, 2000, 2960], false),
-      row(["click",           "browser", "Media",    "Medio — que selecciono"],                 [2400, 2000, 2000, 2960], true),
-      row(["reading_pause",   "browser", "Baja",     "Medio — contexto de pantalla"],           [2400, 2000, 2000, 2960], false),
-      row(["shortcut",        "system",  "Baja",     "Medio — acciones rapidas"],               [2400, 2000, 2000, 2960], true),
-      row(["text_select",     "browser", "Baja",     "Medio — que leyo con atencion"],          [2400, 2000, 2000, 2960], false),
-      row(["scroll_summary",  "system",  "Media",    "Bajo — confirma navegacion vertical"],    [2400, 2000, 2000, 2960], true),
-      row(["hover",           "browser", "Alta",     "Bajo — puede ser ruido"],                 [2400, 2000, 2000, 2960], false),
-      row(["network",         "browser", "Muy alta", "Bajo — util solo para APIs clave"],       [2400, 2000, 2000, 2960], true),
-      row(["drag",            "system",  "Baja",     "Contextual — segun la app"],              [2400, 2000, 2000, 2960], false),
-      row(["screenshot",      "video",   "Media",    "Opcional — imagen de pantalla en momentos clave"], [2400, 2000, 2000, 2960], true),
+      headerRow(["Clave", "Tipo", "Descripcion"], [1800, 1400, 6160]),
+      row(["product",     "object",  "JSON-LD schema.org/Product: name, description, sku, brand, rating, reviewCount, price, currency, availability"], [1800, 1400, 6160], false),
+      row(["breadcrumbs", "string[]","JSON-LD BreadcrumbList o fallback al DOM (.breadcrumb a, etc.)"],                                                  [1800, 1400, 6160], true),
+      row(["meta",        "object",  "Open Graph: og:description, product:price:amount, product:price:currency"],                                       [1800, 1400, 6160], false),
+      row(["headings",    "array",   "Hasta 15 headings {level, text} (h1/h2/h3)"],                                                                     [1800, 1400, 6160], true),
     ]
   }),
-  new Paragraph({
-    spacing: { before: 100 },
-    children: [new TextRun({
-      text: "  (*) Los screenshots no se analizan automaticamente. La IA los consulta solo cuando\n  la informacion textual no es suficiente para entender lo que ocurrio en pantalla.",
-      size: 18, color: "888888", font: "Courier New"
-    })]
+  note("  context puede ser null si la pagina no tiene ninguno de estos datos."),
+
+  p(""),
+
+  // ── 6. screenshot ───────────────────────────────────────────────────────────
+  h("6. Eventos de video (screenshot)", HeadingLevel.HEADING_2),
+  p("frame_extractor.py extrae JPEGs del video en tres momentos clave y los agrega como eventos screenshot."),
+  p(""),
+  code([
+    "  page_load  ->  frame al instante en que cargo cada pagina",
+    "  speech     ->  frame al inicio de cada frase del usuario",
+    "  ambient    ->  frame cada N segundos (default: 10s)",
+  ]),
+  p(""),
+  ...eventTable("screenshot", "5C4033", [
+    ["frame",   "string", "Ruta relativa al JPEG (ej: frames/frame_13.5.jpg)"],
+    ["trigger", "string", "page_load | speech | ambient"],
+    ["url",     "string", "URL de la pagina (solo en page_load)"],
+    ["text",    "string", "Frase del usuario (solo en speech)"],
+  ]),
+  note([
+    "  Los frames estan disponibles en session/frames/ pero la IA no esta obligada",
+    "  a analizarlos. El session_compressed.json ya tiene suficiente informacion textual",
+    "  para la mayoria de los casos. Los screenshots son un recurso adicional para",
+    "  consultas selectivas (verificar contenido visual, leer un precio que el browser",
+    "  no capturo, entender el estado de una app de escritorio).",
+  ].join("\n")),
+
+  p(""),
+
+  // ── 7. speech ───────────────────────────────────────────────────────────────
+  h("7. Evento de audio (speech)", HeadingLevel.HEADING_2),
+  ...eventTable("speech — transcripcion Whisper", "8B0000", [
+    ["text", "string", "Texto transcripto del segmento"],
+    ["end",  "float",  "Segundo de fin del segmento (start = event.time)"],
+  ]),
+  note("  Modelo: Whisper small con autodeteccion de idioma (language=None)."),
+
+  p(""),
+
+  // ── 8. Estructura del session_compressed.json ───────────────────────────────
+  h("8. Estructura del session_compressed.json", HeadingLevel.HEADING_2),
+  p("Despues de compress() + reshape(), la salida es un objeto con dos arrays:"),
+  p(""),
+  code([
+    "{",
+    '  "actions": [ ... ],  // cronologico, lo que el usuario hizo',
+    '  "pages":   [ ... ]   // una entrada por URL visitada con contexto',
+    "}",
+  ]),
+  p(""),
+
+  p("8.1 actions", { bold: true }),
+  p("Lista cronologica de acciones del usuario. Cada item conserva el shape original del evento (time, source, type, data). Tipos incluidos:"),
+  code([
+    "  click, double_click, drag, typed, shortcut, key,",
+    "  input, hover, text_select, copy, paste,",
+    "  scroll_summary, speech, screenshot,",
+    "  page_load, spa_navigation, hash_navigation, api_response",
+  ]),
+  note("  page_load y spa_navigation actuan como anclas temporales: marcan el cambio entre paginas."),
+
+  p(""),
+  p("8.2 pages", { bold: true }),
+  p("Una entrada por URL visitada. Acumula todo lo que es \"contenido de pagina\" en lugar de \"accion del usuario\":"),
+  new Table({
+    width: { size: W, type: WidthType.DXA },
+    columnWidths: [2200, 1400, 5760],
+    rows: [
+      headerRow(["Campo", "Tipo", "Descripcion"], [2200, 1400, 5760]),
+      row(["url, title",       "string",  "URL y titulo de la pagina"],                                       [2200, 1400, 5760], false),
+      row(["time_enter, time_exit", "float", "Segundos de entrada y salida"],                                 [2200, 1400, 5760], true),
+      row(["duration_ms",      "int",     "Tiempo total (viene de page_summary)"],                            [2200, 1400, 5760], false),
+      row(["context",          "object",  "Datos estructurados (product, breadcrumbs, meta, headings)"],      [2200, 1400, 5760], true),
+      row(["h1, price, availability", "string", "Resumen del DOM al salir (page_summary)"],                   [2200, 1400, 5760], false),
+      row(["buttons, sections","string[]","CTAs y headings detectados al salir"],                             [2200, 1400, 5760], true),
+      row(["elements_read",    "array",   "{tag, text, aria?, href?, dwell_ms?} dedup por xpath en la pagina"], [2200, 1400, 5760], false),
+      row(["reading_pauses",   "array",   "{time, scroll_pct, elements:[{tag, text}]}"],                      [2200, 1400, 5760], true),
+      row(["network",          "array",   "{time, method, url, status} de APIs reales del sitio"],            [2200, 1400, 5760], false),
+    ]
+  }),
+  note([
+    "  Los arrays vacios se eliminan en el output final.",
+    "  network excluye URLs de google.com/url (redirects) al asignarse a la pagina.",
+  ].join("\n")),
+
+  p(""),
+  p("8.3 Ejemplo de salida", { bold: true }),
+  code([
+    "{",
+    '  "actions": [',
+    '    { "time": 0.8, "source": "browser", "type": "page_load",',
+    '      "data": { "url": "https://www.mercadolibre.com.mx/...", "title": "Camara TP-Link",',
+    '                "referrer": "https://www.google.com/" } },',
+    '    { "time": 3.1, "source": "speech",  "type": "speech",',
+    '      "data": { "text": "Estoy buscando una camara de seguridad", "end": 5.2 } },',
+    '    { "time": 7.4, "source": "browser", "type": "click",',
+    '      "data": { "tag": "BUTTON", "text": "Comprar ahora",',
+    '                "selectors": { "testid": "buy-now", "css": "button.buy-now",',
+    '                               "xpath": "//*[@id=\\"buy-now\\"]" } } }',
+    '  ],',
+    '  "pages": [',
+    '    { "url": "https://www.mercadolibre.com.mx/...",',
+    '      "title": "Camara TP-Link Tapo",',
+    '      "time_enter": 0.8, "time_exit": 42.1, "duration_ms": 41300,',
+    '      "context": {',
+    '        "product": { "name": "Camara TP-Link Tapo C200", "price": "899",',
+    '                     "currency": "MXN", "availability": "InStock" },',
+    '        "breadcrumbs": ["Electronica", "Camaras de Seguridad"]',
+    '      },',
+    '      "h1": "Camara TP-Link Tapo C200",',
+    '      "price": "$ 899",',
+    '      "buttons": ["Comprar ahora", "Agregar al carrito"],',
+    '      "elements_read": [',
+    '        { "tag": "H1", "text": "Camara TP-Link Tapo C200", "dwell_ms": 5162 }',
+    '      ]',
+    '    }',
+    '  ]',
+    "}",
+  ]),
+
+  p(""),
+
+  // ── 9. Resumen de valor para la IA ──────────────────────────────────────────
+  h("9. Resumen — valor de cada evento para la IA", HeadingLevel.HEADING_2),
+  new Table({
+    width: { size: W, type: WidthType.DXA },
+    columnWidths: [2400, 1600, 1600, 3760],
+    rows: [
+      headerRow(["Tipo", "source", "Frecuencia", "Valor para la IA"], [2400, 1600, 1600, 3760]),
+      row(["speech",          "speech",  "Baja",     "Muy alto — explicita la intencion del usuario"],         [2400, 1600, 1600, 3760], false),
+      row(["page_load + context", "browser", "Baja", "Muy alto — datos estructurados de la pagina"],           [2400, 1600, 1600, 3760], true),
+      row(["page_summary",    "browser", "1/pagina", "Muy alto — h1, precio, CTAs, secciones"],                [2400, 1600, 1600, 3760], false),
+      row(["typed",           "system",  "Media",    "Alto — captura el texto que el usuario escribio"],       [2400, 1600, 1600, 3760], true),
+      row(["click",           "browser", "Media",    "Alto — selectors estables para Playwright"],             [2400, 1600, 1600, 3760], false),
+      row(["element_read",    "browser", "Media",    "Alto — que leyo el usuario (dwell time)"],               [2400, 1600, 1600, 3760], true),
+      row(["input",           "browser", "Baja",     "Alto — valor final de campos de formulario"],            [2400, 1600, 1600, 3760], false),
+      row(["reading_pause",   "browser", "Baja",     "Medio — contexto visual al pausar el scroll"],           [2400, 1600, 1600, 3760], true),
+      row(["shortcut",        "system",  "Baja",     "Medio — acciones rapidas (Ctrl+C, Alt+Tab...)"],         [2400, 1600, 1600, 3760], false),
+      row(["scroll_summary",  "ambos",   "Media",    "Bajo — confirma navegacion vertical"],                   [2400, 1600, 1600, 3760], true),
+      row(["hover",           "browser", "Baja",     "Bajo — solo si la IA necesita confirmar intencion"],     [2400, 1600, 1600, 3760], false),
+      row(["network",         "browser", "Alta",     "Bajo — util solo si se necesita inspeccionar APIs"],     [2400, 1600, 1600, 3760], true),
+      row(["api_response",    "browser", "Variable", "Variable — datos crudos de APIs interceptadas"],         [2400, 1600, 1600, 3760], false),
+      row(["text_select / copy / paste", "browser", "Baja", "Medio — que leyo o transcribio el usuario"],       [2400, 1600, 1600, 3760], true),
+      row(["screenshot",      "video",   "Media",    "Opcional — recurso visual on-demand para la IA"],        [2400, 1600, 1600, 3760], false),
+    ]
   }),
 ];
 
 const doc = new Document({
   styles: {
-    default: {
-      document: { run: { font: "Calibri", size: 22 } }
-    },
+    default: { document: { run: { font: "Calibri", size: 22 } } },
     paragraphStyles: [
       { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true,
         run: { size: 36, bold: true, font: "Calibri", color: "1a1a2e" },

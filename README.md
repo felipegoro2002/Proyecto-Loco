@@ -70,8 +70,8 @@ Presionar **ENTER** para detener la grabacion.
 recorder/data/<session-id>/
 ├── screen.mp4              # Video de pantalla con audio
 ├── audio.wav               # Audio extraido
-├── session.json            # Todos los eventos en crudo
-├── session_compressed.json # Eventos filtrados y comprimidos para la IA
+├── session.json            # Todos los eventos en crudo (lista plana)
+├── session_compressed.json # { "actions": [...], "pages": [...] } para la IA
 └── frames/                 # Frames JPEG extraidos del video
     ├── frame_0.0.jpg       # Frame de speech (frase del usuario)
     ├── frame_10.0.jpg      # Frame ambiental (cada 10s)
@@ -94,7 +94,8 @@ record_session(frame_interval_s=30)  # menos frames
 Usuario actua
     │
     ├── input_listener.py  →  clicks, teclado, scroll, drag (sistema)
-    └── content.js         →  clicks, inputs, dwell time, hover, network (browser)
+    ├── content.js         →  clicks, inputs, dwell time, hover, navegacion (browser)
+    └── video_recorder.py  →  screen.mp4 + audio.wav
                 │
                 ▼
          background.js  (pre-filtro de network en el browser)
@@ -103,33 +104,63 @@ Usuario actua
            - Descarta infraestructura RPC interna (Google Workspace, etc.)
                 │
                 ▼
-         EventManager  (normaliza timestamps, fuente)
+         browser_server.py + EventManager
+           - Normaliza time relativo, source y type
+           - schema.py.clean_event_data() filtra campos no declarados
                 │
-                ├── transcribe.py  →  eventos speech (Whisper small)
-                │
-                ├── frame_extractor.py  →  eventos screenshot
+                ├── transcribe.py     →  eventos speech (Whisper, autodetect)
+                ├── frame_extractor.py →  eventos screenshot
                 │     - page_load: frame al cargar cada pagina
                 │     - speech: frame al inicio de cada frase
                 │     - ambient: frame cada N segundos
                 │
                 ▼
-         session.json  (todos los eventos en crudo)
+         session.json  (lista plana de eventos, ordenada por time)
                 │
                 ▼
-         compressor.py
-           - network    → descarta paths de tracking del mismo sitio
-           - scroll     → agrupa rafagas en scroll_summary (browser + sistema)
-           - element_read → filtra breadcrumbs, paginacion; deduplica
-           - hover      → solo tags semanticos con texto real (>= 800ms)
-           - reading_pause → descarta si scroll_pct < 5% (nav noise)
-           - focus/blur/keydown/time_on_page → descartados siempre
-           - page_load/summary en redirects → descarta google.com/url
-           - page_summary con duration < 500ms → descarta (bounce/redirect)
+         compressor.py — pipeline declarativa
+           drop_noise_types         (focus/blur/keydown/time_on_page)
+           drop_redirect_pages      (page_load/summary/screenshot en google.com/url)
+           drop_short_page_summary  (duration < 500ms)
+           filter_network           (telemetria del mismo sitio)
+           filter_element_read      (breadcrumbs, paginacion, dedup global)
+           filter_hover             (>=800ms, solo tags semanticos con texto)
+           filter_reading_pause     (scroll_pct < 5%)
+           cap_reading_pause_elements (tope 25 elementos)
+           compress_scroll          (rafagas contiguas → scroll_summary)
                 │
                 ▼
-    session_compressed.json  →  IA
-    frames/*.jpg             →  disponibles para analisis visual opcional
+         reshape() — separa acciones de contenido de pagina
+                │
+                ▼
+    session_compressed.json  =  { actions: [...], pages: [...] }  →  IA
+    frames/*.jpg             →  recurso visual opcional para la IA
 ```
+
+### Formato del session_compressed.json
+
+```jsonc
+{
+  "actions": [
+    // Cronologico, lo que el usuario hizo (click, typed, speech, scroll_summary,
+    // page_load como ancla, etc.). Conserva el shape { time, source, type, data }.
+  ],
+  "pages": [
+    {
+      "url": "...", "title": "...",
+      "time_enter": 0.8, "time_exit": 42.1, "duration_ms": 41300,
+      "context": { "product": {...}, "breadcrumbs": [...], "headings": [...] },
+      "h1": "...", "price": "...", "buttons": [...], "sections": [...],
+      "elements_read":  [ { "tag": "H1", "text": "...", "dwell_ms": 5162 } ],
+      "reading_pauses": [ { "time": 12.3, "scroll_pct": 45, "elements": [...] } ],
+      "network":        [ { "time": 1.2, "method": "GET", "url": "...", "status": 200 } ]
+    }
+  ]
+}
+```
+
+- `actions` — todo lo que el usuario hizo, ordenado por tiempo. `page_load` y `spa_navigation` actuan como anclas temporales.
+- `pages` — una entrada por URL visitada con `context` estructurado (JSON-LD / meta / breadcrumbs / headings extraidos por `extractPageContext()`), elementos leidos, pausas de lectura y network calls. Datos de `page_summary` se mergean al cerrar la pagina.
 
 ---
 
@@ -138,25 +169,27 @@ Usuario actua
 | Fuente  | Tipo             | Descripcion |
 |---------|------------------|-------------|
 | system  | `typed`          | Texto escrito (buffer de 1.2s con backspace aplicado) |
+| system  | `key`            | Tecla especial suelta (Enter, Tab, Arrow*, F1..F12) |
 | system  | `shortcut`       | Atajos de teclado (Ctrl+C, Alt+Tab, etc.) |
 | system  | `click`          | Click del mouse con ventana activa |
 | system  | `double_click`   | Doble click |
-| system  | `drag`           | Arrastre con coordenadas y duracion |
+| system  | `drag`           | Arrastre con coordenadas y duracion (>=30 px, >=200 ms) |
 | system  | `scroll_summary` | Rafaga de scroll comprimida (sistema o browser) |
-| browser | `page_load`      | Carga de pagina con URL y titulo |
-| browser | `click`          | Click con tag, texto, xpath y URL |
+| browser | `page_load`      | Carga de pagina con URL, titulo y `context` (JSON-LD, breadcrumbs, headings) |
+| browser | `spa_navigation` | Navegacion via history.pushState / popstate (con `context`) |
+| browser | `hash_navigation`| Cambio de hash en la URL (#seccion) |
+| browser | `click`          | Click con `selectors` estables (testid > id > name > css > xpath) |
 | browser | `input`          | Valor de campo de formulario (debounce 800ms) |
 | browser | `hover`          | Hover intencional (>= 800ms) sobre elemento semantico |
 | browser | `element_read`   | Elemento visible por mas de 1500ms (dwell time) |
-| browser | `reading_pause`  | Snapshot de elementos visibles al pausar el scroll |
-| browser | `page_summary`   | Resumen estructurado al salir (h1, precio, botones) |
-| browser | `spa_navigation`  | Navegacion en apps de una sola pagina (history.pushState / popstate) |
-| browser | `hash_navigation` | Cambio de hash en la URL (#seccion) |
-| browser | `text_select`     | Texto seleccionado con el mouse (> 2 caracteres) |
-| browser | `copy`            | Texto copiado con Ctrl+C o clic derecho > Copiar |
-| browser | `paste`           | Texto pegado en un elemento del DOM |
-| browser | `network`         | APIs del mismo dominio (filtradas por background.js + compressor) |
-| speech  | `speech`         | Transcripcion del audio del usuario (Whisper small) |
+| browser | `reading_pause`  | Snapshot de hasta 25 elementos visibles al pausar el scroll |
+| browser | `page_summary`   | Resumen estructurado al salir (h1, precio, availability, botones, secciones) |
+| browser | `text_select`    | Texto seleccionado con el mouse (> 2 caracteres) |
+| browser | `copy`           | Texto copiado con Ctrl+C o clic derecho > Copiar |
+| browser | `paste`          | Texto pegado en un elemento del DOM |
+| browser | `network`        | APIs del mismo dominio (filtradas por background.js + compressor) |
+| browser | `api_response`   | Body (3KB) de APIs de producto interceptadas (fetch/XHR) |
+| speech  | `speech`         | Transcripcion del audio del usuario (Whisper, autodetect) |
 | video   | `screenshot`     | Frame del video en momentos clave (page_load, speech, ambient) |
 
 Ver el detalle completo de campos en `docs/Esquema de Eventos - Proyecto Loco.docx`.
