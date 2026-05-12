@@ -289,39 +289,52 @@ def reshape(events):
     """
     Reorganiza la lista filtrada en { actions, pages }.
 
-      actions — lo que el usuario hizo, en orden cronológico.
+      actions — lo que el usuario hizo, en orden cronológico. Cada acción
+                lleva `page_index` apuntando a la página activa al momento.
                 page_load / spa_navigation actúan como anclas temporales.
 
-      pages   — una entrada por URL visitada con contexto estructurado:
-                JSON-LD / meta / headings (context), elementos leídos,
-                pausas de lectura, network calls y datos de page_summary.
+      pages   — una entrada por URL visitada (por tab) con contexto
+                estructurado: JSON-LD / meta / headings (context),
+                elementos leídos, pausas de lectura, network calls y
+                datos de page_summary.
+
+    Multi-tab: cada `tab_id` mantiene su propia "página activa". Eventos
+    sin tab_id (system events legacy) caen al último page global.
     """
     actions = []
     pages   = []
-    current = None
+    current_by_tab = {}  # tab_id -> page dict activa en ese tab
+    last_page = None     # última página abierta (cualquier tab), fallback
 
-    def _close_page(t_exit=None):
-        nonlocal current
-        if current is None:
+    def _close_page(page, t_exit=None):
+        if page is None:
             return
-        if t_exit and "time_exit" not in current:
-            current["time_exit"] = t_exit
-        current.pop("_seen", None)
+        if t_exit and "time_exit" not in page:
+            page["time_exit"] = t_exit
+        page.pop("_seen", None)
         for key in ("elements_read", "reading_pauses", "network"):
-            if not current.get(key):
-                current.pop(key, None)
-        if not current.get("context"):
-            current.pop("context", None)
-        pages.append(current)
-        current = None
+            if not page.get(key):
+                page.pop(key, None)
+        if not page.get("context"):
+            page.pop("context", None)
+        pages.append(page)
+
+    def _resolve_page(tab_id):
+        """Página activa para un evento: por tab si está, sino la última global."""
+        if tab_id is not None and tab_id in current_by_tab:
+            return current_by_tab[tab_id]
+        return last_page
 
     for event in events:
-        etype = _type(event)
-        data  = _data(event)
+        etype  = _type(event)
+        data   = _data(event)
+        tab_id = data.get("tab_id")
 
+        # 1. Lifecycle de páginas — page_load / spa_navigation abren una nueva
         if etype in ("page_load", "spa_navigation"):
-            _close_page(event["time"])
-            current = {
+            prev = current_by_tab.pop(tab_id, None)
+            _close_page(prev, event["time"])
+            new_page = {
                 "url":        data.get("url", ""),
                 "title":      data.get("title", ""),
                 "time_enter": event["time"],
@@ -331,60 +344,95 @@ def reshape(events):
                 "network":        [],
                 "_seen":          set(),
             }
-            actions.append({
-                "time":   event["time"],
-                "source": event.get("source"),
-                "type":   etype,
-                "data":   {"url": data.get("url", ""), "title": data.get("title", ""), "referrer": data.get("referrer", "")},
-            })
-            continue
+            if tab_id is not None:
+                new_page["tab_id"] = tab_id
+            current_by_tab[tab_id] = new_page
+            last_page = new_page
+            # fall-through: page_load/spa_navigation también van a actions
 
+        # 2. Eventos de contenido de página (no se duplican en actions)
         if etype == "page_summary":
-            if current is not None:
-                current["time_exit"]   = event["time"]
-                current["duration_ms"] = data.get("duration_ms")
+            page = _resolve_page(tab_id)
+            if page is not None:
+                page["time_exit"]   = event["time"]
+                page["duration_ms"] = data.get("duration_ms")
                 for field in ("h1", "price", "availability", "buttons", "sections"):
                     if data.get(field):
-                        current[field] = data[field]
+                        page[field] = data[field]
             continue
 
-        if etype == "element_read" and current is not None:
-            key = (_xpath(event), _url(event))
-            if key not in current["_seen"]:
-                current["_seen"].add(key)
-                entry = {"tag": data.get("tag", ""), "text": " ".join((data.get("text") or "").split())}
-                if data.get("aria"):     entry["aria"]     = data["aria"]
-                if data.get("href"):     entry["href"]     = data["href"]
-                if data.get("dwell_ms"): entry["dwell_ms"] = data["dwell_ms"]
-                current["elements_read"].append(entry)
+        if etype == "element_read":
+            page = _resolve_page(tab_id)
+            if page is not None:
+                key = (_xpath(event), _url(event))
+                if key not in page["_seen"]:
+                    page["_seen"].add(key)
+                    entry = {"tag": data.get("tag", ""), "text": " ".join((data.get("text") or "").split())}
+                    if data.get("aria"):     entry["aria"]     = data["aria"]
+                    if data.get("href"):     entry["href"]     = data["href"]
+                    if data.get("dwell_ms"): entry["dwell_ms"] = data["dwell_ms"]
+                    page["elements_read"].append(entry)
             continue
 
-        if etype == "reading_pause" and current is not None:
-            current["reading_pauses"].append({
-                "time":       event["time"],
-                "scroll_pct": data.get("scroll_pct"),
-                "elements":   [
-                    {k: v for k, v in {"tag": e.get("tag"), "text": e.get("text")}.items() if v}
-                    for e in data.get("elements", [])
-                ],
-            })
-            continue
-
-        if etype == "network" and current is not None:
-            net_url = data.get("url", "")
-            if not _REDIRECT_DOMAINS_RE.match(net_url):
-                current["network"].append({
-                    "time":   event["time"],
-                    "method": data.get("method", ""),
-                    "url":    net_url,
-                    "status": data.get("status"),
+        if etype == "reading_pause":
+            page = _resolve_page(tab_id)
+            if page is not None:
+                page["reading_pauses"].append({
+                    "time":       event["time"],
+                    "scroll_pct": data.get("scroll_pct"),
+                    "elements":   [
+                        {k: v for k, v in {"tag": e.get("tag"), "text": e.get("text")}.items() if v}
+                        for e in data.get("elements", [])
+                    ],
                 })
             continue
 
-        if etype in _ACTION_TYPES:
-            actions.append(event)
+        if etype == "network":
+            page = _resolve_page(tab_id)
+            if page is not None:
+                net_url = data.get("url", "")
+                if not _REDIRECT_DOMAINS_RE.match(net_url):
+                    page["network"].append({
+                        "time":   event["time"],
+                        "method": data.get("method", ""),
+                        "url":    net_url,
+                        "status": data.get("status"),
+                    })
+            continue
 
-    _close_page()
+        # 3. Acciones del usuario — anotamos referencia a página activa
+        if etype in _ACTION_TYPES:
+            page = _resolve_page(tab_id)
+            if etype in ("page_load", "spa_navigation"):
+                action = {
+                    "time":   event["time"],
+                    "source": event.get("source"),
+                    "type":   etype,
+                    "data":   {
+                        "url":      data.get("url", ""),
+                        "title":    data.get("title", ""),
+                        "referrer": data.get("referrer", ""),
+                    },
+                }
+            else:
+                action = dict(event)
+            action["_page_ref"] = page
+            actions.append(action)
+
+    # Cerrar páginas todavía abiertas al final de la sesión
+    for page in list(current_by_tab.values()):
+        _close_page(page)
+    current_by_tab.clear()
+
+    # Resolver page_index: map id(page) -> índice en `pages`
+    page_to_idx = {id(p): i for i, p in enumerate(pages)}
+    for action in actions:
+        ref = action.pop("_page_ref", None)
+        if ref is not None:
+            idx = page_to_idx.get(id(ref))
+            if idx is not None:
+                action["page_index"] = idx
+
     return {"actions": actions, "pages": pages}
 
 
@@ -413,3 +461,32 @@ def compress_session(session_dir):
     print(f"[OK] {n_actions} acciones | {n_pages} paginas -> {output_path}")
 
     return output_path
+
+
+# ── CLI — reprocesar una sesión ya grabada ────────────────────────────────────
+#
+# Uso:
+#   python -m compressor <session_dir>
+#   python compressor.py <session_dir>
+#
+# Útil cuando tocamos transforms o reshape() y queremos regenerar el
+# session_compressed.json sin volver a grabar.
+
+if __name__ == "__main__":
+    import sys
+    import os
+
+    if len(sys.argv) != 2:
+        print("Uso: python -m compressor <session_dir>")
+        sys.exit(1)
+
+    session_dir = sys.argv[1]
+    if not os.path.isdir(session_dir):
+        print(f"[ERR] No existe el directorio: {session_dir}")
+        sys.exit(1)
+
+    if not os.path.isfile(f"{session_dir}/session.json"):
+        print(f"[ERR] Falta session.json en: {session_dir}")
+        sys.exit(1)
+
+    compress_session(session_dir)

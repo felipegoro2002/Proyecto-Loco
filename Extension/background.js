@@ -1,9 +1,14 @@
 // Reenvía eventos del content script al servidor local
+// tab_id permite reconstruir workflows multi-pestaña en el compresor.
 chrome.runtime.onMessage.addListener((message, sender) => {
   fetch('http://localhost:5000/event', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ source: 'browser', ...message }),
+    body:    JSON.stringify({
+      source:  'browser',
+      tab_id:  sender.tab?.id,
+      ...message,
+    }),
   }).catch(() => {}); // silencia errores si el servidor no está corriendo
 });
 
@@ -82,6 +87,7 @@ chrome.webRequest.onCompleted.addListener(
         source:    'browser',
         type:      'network',
         time:      Date.now(),
+        tab_id:    details.tabId,
         method:    details.method,
         url:       details.url,
         status:    details.statusCode,

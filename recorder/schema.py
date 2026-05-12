@@ -21,13 +21,17 @@ _ELEMENT_FIELDS = (
     "selectors", "id_auto", "classes", "data_attrs",
 )
 
+# Identificador de pestaña del browser (lo adjunta background.js).
+# Permite reconstruir workflows multi-pestaña en el compresor.
+_TAB = ("tab_id",)
+
 SCHEMA = {
     # ── system events ─────────────────────────────────────────────────────────
     "typed":         ("text", *_WINDOW_FIELDS),
     "key":           ("key", *_WINDOW_FIELDS),
     "shortcut":      ("keys", *_WINDOW_FIELDS),
     "click":         ("x", "y", "button", *_WINDOW_FIELDS,
-                      *_ELEMENT_FIELDS),  # los browser clicks tambien usan este type
+                      *_TAB, *_ELEMENT_FIELDS),  # los browser clicks tambien usan este type
     "double_click":  ("x", "y", "button", *_WINDOW_FIELDS),
     "drag":          ("from_x", "from_y", "to_x", "to_y", "button", "duration_ms", *_WINDOW_FIELDS),
     "scroll":        ("x", "y", "delta_x", "delta_y", "direction",
@@ -37,20 +41,20 @@ SCHEMA = {
                        "from_y", "to_y", "viewport_pct", "url", *_WINDOW_FIELDS),
 
     # ── browser events (content.js) ────────────────────────────────────────────
-    "page_load":      ("url", "title", "referrer", "description", "context"),
-    "spa_navigation": ("url", "title", "context"),
-    "hash_navigation":("url", "title"),
-    "page_summary":   ("url", "title", "duration_ms", "h1",
+    "page_load":      (*_TAB, "url", "title", "referrer", "description", "context"),
+    "spa_navigation": (*_TAB, "url", "title", "context"),
+    "hash_navigation":(*_TAB, "url", "title"),
+    "page_summary":   (*_TAB, "url", "title", "duration_ms", "h1",
                        "price", "availability", "buttons", "sections"),
-    "input":          (*_ELEMENT_FIELDS, "value", "input_type"),
-    "hover":          (*_ELEMENT_FIELDS, "x", "y", "duration_ms"),
-    "element_read":   (*_ELEMENT_FIELDS, "dwell_ms"),
-    "reading_pause":  ("url", "scroll_pct", "elements"),
-    "text_select":    ("selected_text", "url"),
-    "copy":           ("text", "url"),
-    "paste":          (*_ELEMENT_FIELDS, "text"),
-    "network":        ("method", "url", "status", "tab_url"),
-    "api_response":   ("url", "body", "page_url"),
+    "input":          (*_TAB, *_ELEMENT_FIELDS, "value", "input_type"),
+    "hover":          (*_TAB, *_ELEMENT_FIELDS, "x", "y", "duration_ms"),
+    "element_read":   (*_TAB, *_ELEMENT_FIELDS, "dwell_ms"),
+    "reading_pause":  (*_TAB, "url", "scroll_pct", "elements"),
+    "text_select":    (*_TAB, "selected_text", "url"),
+    "copy":           (*_TAB, "text", "url"),
+    "paste":          (*_TAB, *_ELEMENT_FIELDS, "text"),
+    "network":        (*_TAB, "method", "url", "status", "tab_url"),
+    "api_response":   (*_TAB, "url", "body", "page_url"),
 
     # ── speech / video ─────────────────────────────────────────────────────────
     "speech":      ("text", "end"),

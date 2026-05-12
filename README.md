@@ -35,7 +35,7 @@ Herramienta de automatizacion de tareas con IA. El sistema graba lo que hace el 
 ### 1. Instalar dependencias
 
 ```bash
-pip install flask flask-cors pynput pywin32 psutil openai-whisper
+pip install -r recorder/requirements.txt
 ```
 
 Requiere tambien **ffmpeg** en el PATH. En Windows, la forma mas rapida es con winget:
@@ -159,8 +159,17 @@ Usuario actua
 }
 ```
 
-- `actions` — todo lo que el usuario hizo, ordenado por tiempo. `page_load` y `spa_navigation` actuan como anclas temporales.
-- `pages` — una entrada por URL visitada con `context` estructurado (JSON-LD / meta / breadcrumbs / headings extraidos por `extractPageContext()`), elementos leidos, pausas de lectura y network calls. Datos de `page_summary` se mergean al cerrar la pagina.
+- `actions` — todo lo que el usuario hizo, ordenado por tiempo. Cada acción lleva `page_index` apuntando a la página activa al momento. `page_load` y `spa_navigation` actuan como anclas temporales.
+- `pages` — una entrada por URL visitada (por pestaña) con `context` estructurado (JSON-LD / meta / breadcrumbs / headings extraidos por `extractPageContext()`), elementos leidos, pausas de lectura y network calls. Datos de `page_summary` se mergean al cerrar la pagina. Incluye `tab_id` si la sesión es multi-pestaña.
+
+### Reprocesar una sesión ya grabada
+
+Para regenerar `session_compressed.json` después de cambiar `compressor.py` sin volver a grabar:
+
+```bash
+cd recorder
+python compressor.py data/<session-id>
+```
 
 ---
 
