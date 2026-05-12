@@ -47,6 +47,75 @@ function getCssPath(el) {
   return parts.join(' > ');
 }
 
+// ── Redacción de campos sensibles ─────────────────────────────────────────────
+//
+// Heurísticas para detectar inputs que pueden contener secretos (passwords,
+// tarjetas, CVV, tokens, identificadores fiscales). Los valores se reemplazan
+// con "[REDACTED]" antes de enviarse al recorder. Conservamos `value_length`
+// para que la IA pueda saber qué se escribió (cuántos chars) sin ver el valor.
+//
+// Conocida limitacion: los eventos `typed` del sistema (pynput) no pasan por
+// aqui, asi que tipear una contrasena puede quedar reflejado en system events.
+// Solucion futura: que content.js avise al recorder via Flask para que el
+// system listener pause el buffer durante el foco en campos sensibles.
+
+const _SENSITIVE_TYPE_RE         = /^password$/i;
+const _SENSITIVE_AUTOCOMPLETE_RE = /^(current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp(-month|-year)?)$/i;
+// Coincidencia en name/id/aria-label/placeholder; tokens separados por _, -, espacios o limites.
+const _SENSITIVE_NAME_RE         = /(^|[_\-\s])(password|passwd|pwd|secret|token|api[_-]?key|cvv|cvc|csc|card[_-]?(number|num)|ccnum|expir|ssn|sin|dni|cuit|tax[_-]?id|pin)($|[_\-\s])/i;
+
+function _isSensitiveField(el) {
+  if (!el || !el.tagName) return false;
+  if (_SENSITIVE_TYPE_RE.test(el.type || '')) return true;
+  if (_SENSITIVE_AUTOCOMPLETE_RE.test(el.getAttribute('autocomplete') || '')) return true;
+  const hint = ` ${el.name || ''} ${el.id || ''} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('placeholder') || ''} `;
+  return _SENSITIVE_NAME_RE.test(hint);
+}
+
+function _redactedValue(raw) {
+  return { value: '[REDACTED]', value_length: (raw || '').length, redacted: true };
+}
+
+// ── Form context ──────────────────────────────────────────────────────────────
+//
+// Detecta el <form> ancestro (o [role="form"]) para que la IA pueda agrupar
+// inputs por formulario y entender que pertenece al mismo submit.
+
+function _formInfo(el) {
+  const form = el.closest('form, [role="form"]');
+  if (!form) return null;
+  const info  = {};
+  const id    = _isStableId(form.id) ? form.id : '';
+  const name  = form.getAttribute('name') || '';
+  const action = form.getAttribute('action') || '';
+  if (id)     info.form_id     = id;
+  if (name)   info.form_name   = name;
+  if (action) info.form_action = action;
+  return Object.keys(info).length ? info : null;
+}
+
+// ── Label asociado al elemento ────────────────────────────────────────────────
+//
+// Orden de búsqueda: aria-labelledby > <label for> > <label> envolvente.
+// 80 chars de tope para no inflar el evento si el label tiene texto largo.
+
+function _findLabel(el) {
+  const labelledBy = el.getAttribute('aria-labelledby');
+  if (labelledBy) {
+    const ref = document.getElementById(labelledBy);
+    if (ref?.innerText) return ref.innerText.trim().slice(0, 80);
+  }
+  if (_isStableId(el.id)) {
+    try {
+      const lbl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (lbl?.innerText) return lbl.innerText.trim().slice(0, 80);
+    } catch (_) { /* selector mal formado */ }
+  }
+  const wrappingLabel = el.closest('label');
+  if (wrappingLabel?.innerText) return wrappingLabel.innerText.trim().slice(0, 80);
+  return '';
+}
+
 function elInfo(el) {
   if (!el || !el.tagName) return {};
 
@@ -59,7 +128,7 @@ function elInfo(el) {
     if (/^data-(testid|test-id|cy|qa)$/i.test(attr.name)) testid = attr.value;
   }
 
-  return {
+  const info = {
     tag:     el.tagName,
     text:    (el.innerText || '').slice(0, 120),
     role:    el.getAttribute('role') || el.tagName.toLowerCase(),
@@ -79,6 +148,20 @@ function elInfo(el) {
     classes:    typeof el.className === 'string' ? el.className : '',
     data_attrs: Object.keys(dataAttrs).length ? dataAttrs : undefined,
   };
+
+  // Form context: cualquier elemento dentro de un <form> hereda esta info.
+  const formCtx = _formInfo(el);
+  if (formCtx) Object.assign(info, formCtx);
+
+  // Label y placeholder: solo relevantes para inputs / textarea / select.
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)) {
+    const label = _findLabel(el);
+    const placeholder = el.getAttribute('placeholder') || '';
+    if (label)       info.label       = label;
+    if (placeholder) info.placeholder = placeholder;
+  }
+
+  return info;
 }
 
 function send(type, data) {
@@ -169,7 +252,13 @@ document.addEventListener('input', (e) => {
   if (!['INPUT', 'TEXTAREA'].includes(el.tagName)) return;
   clearTimeout(inputTimer);
   inputTimer = setTimeout(() => {
-    send('input', { ...elInfo(el), value: el.value, input_type: el.type || '' });
+    const payload = { ...elInfo(el), input_type: el.type || '' };
+    if (_isSensitiveField(el)) {
+      Object.assign(payload, _redactedValue(el.value));
+    } else {
+      payload.value = el.value;
+    }
+    send('input', payload);
   }, 800);
 });
 
@@ -228,7 +317,16 @@ document.addEventListener('copy', () => {
 
 document.addEventListener('paste', (e) => {
   const text = e.clipboardData?.getData('text') || '';
-  if (text) send('paste', { text: text.slice(0, 300), ...elInfo(e.target) });
+  if (!text) return;
+  const payload = { ...elInfo(e.target) };
+  if (_isSensitiveField(e.target)) {
+    payload.text         = '[REDACTED]';
+    payload.text_length  = text.length;
+    payload.redacted     = true;
+  } else {
+    payload.text = text.slice(0, 300);
+  }
+  send('paste', payload);
 });
 
 // ── Dwell time — reemplaza element_visible ────────────────────────────────────

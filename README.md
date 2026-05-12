@@ -188,7 +188,7 @@ python compressor.py data/<session-id>
 | browser | `spa_navigation` | Navegacion via history.pushState / popstate (con `context`) |
 | browser | `hash_navigation`| Cambio de hash en la URL (#seccion) |
 | browser | `click`          | Click con `selectors` estables (testid > id > name > css > xpath) |
-| browser | `input`          | Valor de campo de formulario (debounce 800ms) |
+| browser | `input`          | Valor de campo de formulario (debounce 800ms). Passwords/tarjetas/tokens redactados a `[REDACTED]` con `value_length` |
 | browser | `hover`          | Hover intencional (>= 800ms) sobre elemento semantico |
 | browser | `element_read`   | Elemento visible por mas de 1500ms (dwell time) |
 | browser | `reading_pause`  | Snapshot de hasta 25 elementos visibles al pausar el scroll |
@@ -202,6 +202,23 @@ python compressor.py data/<session-id>
 | video   | `screenshot`     | Frame del video en momentos clave (page_load, speech, ambient) |
 
 Ver el detalle completo de campos en `docs/Esquema de Eventos - Proyecto Loco.docx`.
+
+### Sobre la redaccion de campos sensibles
+
+Los eventos `input` y `paste` se redactan automaticamente cuando el elemento destino parece contener informacion sensible. Heuristicas (en `content.js`):
+
+- `type="password"`
+- `autocomplete` en: `current-password`, `new-password`, `one-time-code`, `cc-number`, `cc-csc`, `cc-exp*`
+- `name` / `id` / `aria-label` / `placeholder` contiene: `password`, `passwd`, `pwd`, `secret`, `token`, `api_key`, `cvv`, `cvc`, `card-number`, `cardnum`, `expir`, `ssn`, `dni`, `cuit`, `tax-id`, `pin`
+
+Cuando se detecta:
+
+- `value` (o `text` en paste) → `"[REDACTED]"`
+- Se agrega `value_length` (o `text_length`) y `redacted: true`
+
+Asi la IA sabe que el usuario escribio 16 caracteres en el campo "Numero de tarjeta" sin ver el numero.
+
+**Limitacion conocida:** los eventos `typed` del sistema (pynput) no pasan por esta heuristica porque corren a nivel OS y no saben qué campo del browser tiene foco. Si el usuario tipea una contraseña, aparecera en `typed`. Para sesiones reales con secretos, usar `paste` desde un gestor de contraseñas (que sí se redacta correctamente).
 
 ### Sobre el filtro de network
 

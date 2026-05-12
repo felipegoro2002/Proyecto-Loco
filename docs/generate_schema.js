@@ -223,12 +223,18 @@ const sections_content = [
       row(["id_auto",    "string",       "id del elemento si parece auto-generado (j_idt, view_24...)"],    [1800, 1400, 6160], true),
       row(["classes",    "string",       "className del elemento"],                                         [1800, 1400, 6160], false),
       row(["data_attrs", "object",       "Todos los atributos data-* del elemento (si los hay)"],           [1800, 1400, 6160], true),
+      row(["label",      "string",       "Texto del <label for> / aria-labelledby / label envolvente (solo INPUT/TEXTAREA/SELECT)"], [1800, 1400, 6160], false),
+      row(["placeholder","string",       "Atributo placeholder del elemento (solo INPUT/TEXTAREA/SELECT)"], [1800, 1400, 6160], true),
+      row(["form_id",    "string",       "id del <form> ancestro (solo si el elemento esta dentro de un form)"], [1800, 1400, 6160], false),
+      row(["form_name",  "string",       "name del <form> ancestro"],                                       [1800, 1400, 6160], true),
+      row(["form_action","string",       "action del <form> ancestro (endpoint del submit)"],               [1800, 1400, 6160], false),
     ]
   }),
   note([
     "  selectors.testid > selectors.id > selectors.name > selectors.css > selectors.xpath",
     "  La IA debe usar el primero no vacio. xpath es ultimo recurso porque rompe ante cambios de DOM.",
     "  getXPath() y getCssPath() saltan ids inestables (j_idt, view_24, css-xyz, ng-*, mat-*, etc.)",
+    "  form_* permiten agrupar inputs por formulario y entender que pertenece al mismo submit.",
   ].join("\n")),
 
   ...eventTable("4.1 page_load", "0066cc", [
@@ -257,10 +263,20 @@ const sections_content = [
   ]),
 
   ...eventTable("4.5 input", "0066cc", [
-    ["value", "string", "Valor actual del campo (debounce 800ms)"],
+    ["value", "string", "Valor actual del campo (debounce 800ms). \"[REDACTED]\" si el campo es sensible"],
     ["input_type", "string", "Tipo del input (text, email, search, password...)"],
-    ["...campos base", "", "tag, selectors, etc."],
+    ["value_length", "int", "Longitud del valor original (solo si redacted=true)"],
+    ["redacted", "bool", "true si el campo fue redactado (password, CC, CVV, etc.)"],
+    ["...campos base", "", "tag, selectors, label, placeholder, form_id, etc."],
   ]),
+  note([
+    "  Heuristicas de redaccion (content.js):",
+    "    - type=password",
+    "    - autocomplete=current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp*",
+    "    - name/id/aria-label/placeholder contiene: password, passwd, pwd, secret, token,",
+    "      api_key, cvv, cvc, card-number, cardnum, expir, ssn, dni, cuit, tax-id, pin",
+    "  Limitacion: eventos `typed` del sistema (pynput) no pasan por este filtro.",
+  ].join("\n")),
 
   ...eventTable("4.6 hover", "0066cc", [
     ["duration_ms", "int", "Tiempo del cursor sobre el elemento (capture y compressor: >=800ms)"],
@@ -312,8 +328,10 @@ const sections_content = [
   ]),
 
   ...eventTable("4.12 paste", "0066cc", [
-    ["text", "string", "Texto pegado (max 300)"],
-    ["...campos base", "", "Campos del elemento destino del pegado"],
+    ["text", "string", "Texto pegado (max 300). \"[REDACTED]\" si el destino es sensible"],
+    ["text_length", "int", "Longitud original del texto pegado (solo si redacted=true)"],
+    ["redacted", "bool", "true si el campo destino fue redactado"],
+    ["...campos base", "", "Campos del elemento destino, incluido form_id si aplica"],
   ]),
 
   ...eventTable("4.13 network (filtrado en dos etapas)", "0066cc", [

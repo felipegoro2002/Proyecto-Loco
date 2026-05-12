@@ -19,6 +19,11 @@ _WINDOW_FIELDS = ("app", "window_title")
 _ELEMENT_FIELDS = (
     "tag", "text", "role", "aria", "href", "url",
     "selectors", "id_auto", "classes", "data_attrs",
+    # Contexto de formulario y label/placeholder.
+    # form_* solo aparecen si el elemento esta dentro de un <form> o [role="form"].
+    # label/placeholder solo en INPUT/TEXTAREA/SELECT.
+    "label", "placeholder",
+    "form_id", "form_name", "form_action",
 )
 
 # Identificador de pestaña del browser (lo adjunta background.js).
@@ -46,13 +51,15 @@ SCHEMA = {
     "hash_navigation":(*_TAB, "url", "title"),
     "page_summary":   (*_TAB, "url", "title", "duration_ms", "h1",
                        "price", "availability", "buttons", "sections"),
-    "input":          (*_TAB, *_ELEMENT_FIELDS, "value", "input_type"),
+    "input":          (*_TAB, *_ELEMENT_FIELDS, "value", "input_type",
+                       "value_length", "redacted"),
     "hover":          (*_TAB, *_ELEMENT_FIELDS, "x", "y", "duration_ms"),
     "element_read":   (*_TAB, *_ELEMENT_FIELDS, "dwell_ms"),
     "reading_pause":  (*_TAB, "url", "scroll_pct", "elements"),
     "text_select":    (*_TAB, "selected_text", "url"),
     "copy":           (*_TAB, "text", "url"),
-    "paste":          (*_TAB, *_ELEMENT_FIELDS, "text"),
+    "paste":          (*_TAB, *_ELEMENT_FIELDS, "text",
+                       "text_length", "redacted"),
     "network":        (*_TAB, "method", "url", "status", "tab_url"),
     "api_response":   (*_TAB, "url", "body", "page_url"),
 
