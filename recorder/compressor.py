@@ -371,12 +371,14 @@ def reshape(events):
             continue
 
         if etype == "network" and current is not None:
-            current["network"].append({
-                "time":   event["time"],
-                "method": data.get("method", ""),
-                "url":    data.get("url", ""),
-                "status": data.get("status"),
-            })
+            net_url = data.get("url", "")
+            if not _REDIRECT_DOMAINS_RE.match(net_url):
+                current["network"].append({
+                    "time":   event["time"],
+                    "method": data.get("method", ""),
+                    "url":    net_url,
+                    "status": data.get("status"),
+                })
             continue
 
         if etype in _ACTION_TYPES:
