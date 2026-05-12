@@ -37,8 +37,8 @@ SCHEMA = {
                        "from_y", "to_y", "viewport_pct", "url", *_WINDOW_FIELDS),
 
     # ── browser events (content.js) ────────────────────────────────────────────
-    "page_load":      ("url", "title", "referrer", "description"),
-    "spa_navigation": ("url", "title"),
+    "page_load":      ("url", "title", "referrer", "description", "context"),
+    "spa_navigation": ("url", "title", "context"),
     "hash_navigation":("url", "title"),
     "page_summary":   ("url", "title", "duration_ms", "h1",
                        "price", "availability", "buttons", "sections"),

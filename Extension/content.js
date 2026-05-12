@@ -362,25 +362,101 @@ window.addEventListener('scroll', () => {
   }, PAUSE_MS);
 }, { passive: true });
 
+// ── Extracción de contexto estructurado de la página ─────────────────────────
+//
+// Lee datos ya presentes en el HTML: JSON-LD (estándar SEO), meta tags Open
+// Graph, breadcrumbs del DOM y jerarquía de headings. No intercepta red.
+// Complementa page_summary con datos estructurados disponibles desde el inicio.
+
+function extractPageContext() {
+  const ctx = {};
+
+  // 1. JSON-LD — datos estructurados estándar (Google exige esto a los e-commerce)
+  const schemas = [...document.querySelectorAll('script[type="application/ld+json"]')]
+    .map(s => { try { return JSON.parse(s.textContent); } catch (_) { return null; } })
+    .filter(Boolean);
+
+  const flat = schemas.flatMap(s => Array.isArray(s['@graph']) ? s['@graph'] : [s]);
+
+  const productSchema = flat.find(s => ['Product', 'ProductGroup'].includes(s['@type']));
+  if (productSchema) {
+    const offers = Array.isArray(productSchema.offers) ? productSchema.offers[0] : productSchema.offers;
+    const p = {};
+    if (productSchema.name)        p.name        = String(productSchema.name).slice(0, 200);
+    if (productSchema.description) p.description = String(productSchema.description).slice(0, 400);
+    if (productSchema.sku)         p.sku         = String(productSchema.sku).slice(0, 60);
+    if (productSchema.brand?.name) p.brand       = productSchema.brand.name;
+    if (productSchema.aggregateRating) {
+      p.rating      = productSchema.aggregateRating.ratingValue;
+      p.reviewCount = productSchema.aggregateRating.reviewCount;
+    }
+    if (offers) {
+      if (offers.price)         p.price        = offers.price;
+      if (offers.priceCurrency) p.currency     = offers.priceCurrency;
+      if (offers.availability)  p.availability = offers.availability.split('/').pop();
+    }
+    if (Object.keys(p).length) ctx.product = p;
+  }
+
+  const bcSchema = flat.find(s => s['@type'] === 'BreadcrumbList');
+  if (bcSchema?.itemListElement) {
+    const bc = bcSchema.itemListElement.map(item => item.name || item.item?.name || '').filter(Boolean);
+    if (bc.length) ctx.breadcrumbs = bc;
+  }
+
+  // 2. Breadcrumbs del DOM (fallback)
+  if (!ctx.breadcrumbs) {
+    const bcEls = [...document.querySelectorAll(
+      '[class*="breadcrumb"] a, [aria-label*="breadcrumb"] a, ' +
+      '[class*="Breadcrumb"] a, [itemtype*="BreadcrumbList"] [itemprop="name"]'
+    )];
+    const bc = bcEls.map(el => el.innerText.trim()).filter(t => t && t.length < 80);
+    if (bc.length) ctx.breadcrumbs = bc;
+  }
+
+  // 3. Meta tags Open Graph
+  const metaMap = {};
+  [['og:description', 'property'], ['product:price:amount', 'property'], ['product:price:currency', 'property']]
+    .forEach(([key, attr]) => {
+      const el = document.querySelector(`meta[${attr}="${key}"]`);
+      if (el?.content) metaMap[key] = el.content.slice(0, 200);
+    });
+  if (Object.keys(metaMap).length) ctx.meta = metaMap;
+
+  // 4. Jerarquía de headings
+  const headings = [...document.querySelectorAll('h1, h2, h3')]
+    .map(h => ({ level: h.tagName, text: h.innerText.trim().slice(0, 120) }))
+    .filter(h => h.text.length > 1).slice(0, 15);
+  if (headings.length) ctx.headings = headings;
+
+  return Object.keys(ctx).length ? ctx : null;
+}
+
+
 // ── Page load / navegación ────────────────────────────────────────────────────
 
 let pageLoadTime = Date.now();
 
 send('page_load', {
-  url:         window.location.href,
-  title:       document.title,
-  referrer:    document.referrer,
-  description: document.querySelector('meta[name="description"]')?.content || '',
+  url:      window.location.href,
+  title:    document.title,
+  referrer: document.referrer,
+  context:  extractPageContext(),
 });
 
 // Navegación SPA via history.pushState (React, Vue, Next.js, etc.)
+// Espera 300ms para que la SPA renderice el nuevo contenido antes de leer el DOM
 const _pushState = history.pushState.bind(history);
 history.pushState = function (...args) {
   _pushState(...args);
-  send('spa_navigation', { url: window.location.href, title: document.title });
+  setTimeout(() => {
+    send('spa_navigation', { url: window.location.href, title: document.title, context: extractPageContext() });
+  }, 300);
 };
 window.addEventListener('popstate', () => {
-  send('spa_navigation', { url: window.location.href, title: document.title });
+  setTimeout(() => {
+    send('spa_navigation', { url: window.location.href, title: document.title, context: extractPageContext() });
+  }, 300);
 });
 window.addEventListener('hashchange', () => {
   send('hash_navigation', { url: window.location.href, title: document.title });

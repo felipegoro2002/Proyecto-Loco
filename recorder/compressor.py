@@ -272,6 +272,120 @@ def compress(events):
     return events
 
 
+# ── Reshape: acciones vs contenido de página ───────────────────────────────────
+
+_ACTION_TYPES = {
+    "click", "double_click", "drag",
+    "typed", "shortcut", "key",
+    "input", "hover",
+    "text_select", "copy", "paste",
+    "scroll_summary",
+    "speech", "screenshot",
+    "page_load", "spa_navigation", "hash_navigation",
+    "api_response",
+}
+
+def reshape(events):
+    """
+    Reorganiza la lista filtrada en { actions, pages }.
+
+      actions — lo que el usuario hizo, en orden cronológico.
+                page_load / spa_navigation actúan como anclas temporales.
+
+      pages   — una entrada por URL visitada con contexto estructurado:
+                JSON-LD / meta / headings (context), elementos leídos,
+                pausas de lectura, network calls y datos de page_summary.
+    """
+    actions = []
+    pages   = []
+    current = None
+
+    def _close_page(t_exit=None):
+        nonlocal current
+        if current is None:
+            return
+        if t_exit and "time_exit" not in current:
+            current["time_exit"] = t_exit
+        current.pop("_seen", None)
+        for key in ("elements_read", "reading_pauses", "network"):
+            if not current.get(key):
+                current.pop(key, None)
+        if not current.get("context"):
+            current.pop("context", None)
+        pages.append(current)
+        current = None
+
+    for event in events:
+        etype = _type(event)
+        data  = _data(event)
+
+        if etype in ("page_load", "spa_navigation"):
+            _close_page(event["time"])
+            current = {
+                "url":        data.get("url", ""),
+                "title":      data.get("title", ""),
+                "time_enter": event["time"],
+                "context":    data.get("context"),
+                "elements_read":  [],
+                "reading_pauses": [],
+                "network":        [],
+                "_seen":          set(),
+            }
+            actions.append({
+                "time":   event["time"],
+                "source": event.get("source"),
+                "type":   etype,
+                "data":   {"url": data.get("url", ""), "title": data.get("title", ""), "referrer": data.get("referrer", "")},
+            })
+            continue
+
+        if etype == "page_summary":
+            if current is not None:
+                current["time_exit"]   = event["time"]
+                current["duration_ms"] = data.get("duration_ms")
+                for field in ("h1", "price", "availability", "buttons", "sections"):
+                    if data.get(field):
+                        current[field] = data[field]
+            continue
+
+        if etype == "element_read" and current is not None:
+            key = (_xpath(event), _url(event))
+            if key not in current["_seen"]:
+                current["_seen"].add(key)
+                entry = {"tag": data.get("tag", ""), "text": " ".join((data.get("text") or "").split())}
+                if data.get("aria"):     entry["aria"]     = data["aria"]
+                if data.get("href"):     entry["href"]     = data["href"]
+                if data.get("dwell_ms"): entry["dwell_ms"] = data["dwell_ms"]
+                current["elements_read"].append(entry)
+            continue
+
+        if etype == "reading_pause" and current is not None:
+            current["reading_pauses"].append({
+                "time":       event["time"],
+                "scroll_pct": data.get("scroll_pct"),
+                "elements":   [
+                    {k: v for k, v in {"tag": e.get("tag"), "text": e.get("text")}.items() if v}
+                    for e in data.get("elements", [])
+                ],
+            })
+            continue
+
+        if etype == "network" and current is not None:
+            current["network"].append({
+                "time":   event["time"],
+                "method": data.get("method", ""),
+                "url":    data.get("url", ""),
+                "status": data.get("status"),
+            })
+            continue
+
+        if etype in _ACTION_TYPES:
+            actions.append(event)
+
+    _close_page()
+    return {"actions": actions, "pages": pages}
+
+
 # ── Entrada desde archivo ─────────────────────────────────────────────────────
 
 def compress_session(session_dir):
@@ -281,15 +395,19 @@ def compress_session(session_dir):
     with open(input_path, encoding="utf-8") as f:
         events = json.load(f)
 
-    original   = len(events)
-    compressed = compress(events)
-    reduced    = len(compressed)
-    pct        = round((1 - reduced / original) * 100) if original else 0
+    original  = len(events)
+    filtered  = compress(events)
+    reduced   = len(filtered)
+    pct       = round((1 - reduced / original) * 100) if original else 0
+
+    result    = reshape(filtered)
+    n_actions = len(result["actions"])
+    n_pages   = len(result["pages"])
 
     with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(compressed, f, indent=2, ensure_ascii=False)
+        json.dump(result, f, indent=2, ensure_ascii=False)
 
     print(f"[ZIP] {original} -> {reduced} eventos  ({pct}% reduccion)")
-    print(f"[OK] Comprimido: {output_path}")
+    print(f"[OK] {n_actions} acciones | {n_pages} paginas -> {output_path}")
 
     return output_path
